@@ -37,15 +37,12 @@ naver_headers = {
     "X-Naver-Client-Secret": naver_client_secret
 }
 
+# 기존의 pub_date 비교 로직을 잠시 무시하고 강제로 True를 반환하게 수정합니다.
 def is_valid_article(title, original_link, pub_date_str):
     if any(neg_word in title for neg_word in negative_keywords): return False
     if not any(domain in original_link for domain in premium_media_domains): return False
     
-    # 네이버 발행 시간을 파싱하고 한국 시간대로 변환
-    pub_date = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z').astimezone(kst)
-    # tzinfo를 제거하여 비교 가능하게 함
-    if pub_date.replace(tzinfo=None) < cutoff_time.replace(tzinfo=None): return False
-    
+    # 시간 필터링을 잠시 끕니다.
     return True
 
 for keyword in keywords:

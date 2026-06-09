@@ -2,8 +2,8 @@ name: Financial News Bot Weekly Run
 
 on:
   schedule:
-    # 0 7 * * 1-5를 0 8 * * 1-5로 수정 (한국 시간 오후 5시 기준 발송)
-    - cron: '0 8 * * 1-5'
+    # 매시간 정각에 체크하도록 변경
+    - cron: '0 * * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -31,4 +31,5 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
         NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+        IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
       run: python news_bot.py

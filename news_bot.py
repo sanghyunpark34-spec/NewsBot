@@ -3,6 +3,20 @@ import os
 from datetime import datetime, timedelta
 import pytz
 
+# 환경 변수에서 수동 실행 여부 확인
+is_manual = os.environ.get("IS_MANUAL") == "true"
+
+kst = pytz.timezone('Asia/Seoul')
+now_kst = datetime.now(kst)
+
+# [핵심 로직] 자동 실행일 때만 16시 체크
+if not is_manual:
+    if now_kst.hour != 16:
+        print(f"자동 실행: 현재 {now_kst.strftime('%H:%M')}은 16시가 아닙니다. 종료합니다.")
+        sys.exit(0)
+else:
+    print("수동 실행 모드입니다. 시간 체크를 건너뜁니다.")
+
 # 설정 (생략 - 기존과 동일)
 telegram_token = os.environ.get("TELEGRAM_TOKEN")
 telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")

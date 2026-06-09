@@ -18,11 +18,11 @@ cutoff_time = (now_kst.replace(hour=16, minute=0, second=0, microsecond=0) - tim
 keywords = [
     "금융권 M&A", "보험사 자본확충", "대체투자 사모펀드", "시장 금리 거시경제", 
     "금융당국 정책 규제", "한화생명 전략", "보험업 주요 이슈", 
-    "기업 지배구조", "금융 자산관리", "글로벌 금융 시장"
+    "기업 지배구조", "금융 자산관리", "글로벌 금융 시장", "한화그룹", "자본시장"  
 ]
 
 premium_media_domains = ["einfomax.co.kr", "dealsite.co.kr", "investchosun.com", "insjournal.co.kr", "hankyung.com", "sisajournal-e.com", "mtn.co.kr", "kfenews.co.kr"]
-negative_keywords = ["MOU", "봉사활동", "공모전", "캠페인", "기부", "동정", "포토", "이벤트", "내정", "취임", "부임", "영입", "선임"]
+negative_keywords = ["MOU", "봉사활동", "공모전", "캠페인", "기부", "동정", "포토", "이벤트", "내정", "취임", "부임", "영입", "선임", "이글스"]
 
 unique_articles = []
 seen_links = set()

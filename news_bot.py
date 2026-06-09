@@ -21,12 +21,35 @@ else:
 # 설정 (생략 - 기존과 동일)
 telegram_token = os.environ.get("TELEGRAM_TOKEN")
 telegram_chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+my_id = os.environ.get("MY_CHAT_ID")
+group_id = os.environ.get("GROUP_CHAT_ID")
 naver_client_id = os.environ.get("NAVER_CLIENT_ID")
 naver_client_secret = os.environ.get("NAVER_CLIENT_SECRET")
 kst = pytz.timezone('Asia/Seoul')
 now_kst = datetime.now(kst)
 days_to_subtract = 3 if now_kst.weekday() == 0 else 1
 cutoff_time = (now_kst.replace(hour=16, minute=0, second=0, microsecond=0) - timedelta(days=days_to_subtract))
+
+def send_telegram_message(token, text):
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    
+    # [수정] 실행 모드에 따른 타겟 설정
+    # 수동이면 내 ID로만, 자동이면 단톡방(Group) ID로 발송
+    targets = [my_id] if is_manual else [group_id]
+    
+    for chat_id in targets:
+        for i in range(0, len(text), 4000):
+            chunk = text[i:i+4000]
+            requests.post(url, data={"chat_id": chat_id, "text": chunk, "disable_web_page_preview": True})
+
+# [전송 로직]
+if final_articles:
+    message_text = f"[금융/전략 핵심 브리핑 - 총 {len(final_articles)}건]\n\n"
+    for i, article in enumerate(final_articles, 1):
+        message_text += f"{i}. [{article['keyword']}] {article['title']}\n{article['link']}\n\n"
+    
+    send_telegram_message(telegram_token, message_text)
+    
 
 keywords = [
     "금융권 M&A", "보험사 자본확충", "대체투자 사모펀드", 

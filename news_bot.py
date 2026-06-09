@@ -27,9 +27,9 @@ else:
 days_to_subtract = 3 if now_kst.weekday() == 0 else 1
 cutoff_time = (now_kst.replace(hour=16, minute=0, second=0, microsecond=0) - timedelta(days=days_to_subtract))
 
-keywords = ["금융권 M&A", "보험사 자본확충", "대체투자 사모펀드", "지배구조 개편", "한화생명 전략", "저축은행 M&A", "캐피탈 M&A", "지분투자", "인수"]
+keywords = ["금융권 M&A", "보험사 자본확충", "대체투자 사모펀드", "지배구조 개편", "한화생명 전략", "저축은행 M&A", "캐피탈 M&A", "지분투자", "인수", "한화"]
 premium_media_domains = ["einfomax.co.kr", "dealsite.co.kr", "investchosun.com", "insjournal.co.kr", "hankyung.com", "sisajournal-e.com", "mtn.co.kr", "kfenews.co.kr", "thebell.co.kr"]
-negative_keywords = ["MOU", "봉사활동", "공모전", "캠페인", "기부", "동정", "포토", "이벤트", "내정", "취임", "부임", "영입", "선임", "인사", "한줄뉴스", "회사채", "수요예측", "언더금리", "주식 전망", "성장주", "테크", "양자컴퓨터", "우주", "콘텐츠", "상장 첫날", "주가"]
+negative_keywords = ["MOU", "봉사활동", "공모전", "캠페인", "기부", "동정", "포토", "이벤트", "내정", "취임", "부임", "영입", "선임", "인사", "이글스", "한줄뉴스", "회사채", "수요예측", "언더금리", "주식 전망", "성장주", "테크", "양자컴퓨터", "우주", "콘텐츠", "상장 첫날", "주가"]
 
 unique_articles = []
 seen_links = set()

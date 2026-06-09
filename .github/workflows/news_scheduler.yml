@@ -29,6 +29,8 @@ jobs:
       env:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        MY_CHAT_ID: ${{ secrets.MY_CHAT_ID }}
+        GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
         NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
         NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
         IS_MANUAL: ${{ github.event_name == 'workflow_dispatch' }}

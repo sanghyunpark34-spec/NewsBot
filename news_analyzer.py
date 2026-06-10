@@ -15,8 +15,9 @@ spreadsheet = client.open("News_Management_DB")
 
 # Gemini API 설정
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-3.5-flash')
+model = genai.GenerativeModel('gemini-3.0-flash')
 
+       
 def analyze_article(title, content, rubric):
     rubric_str = "\n".join([f"- {r['Criteria']}: {r['Description']} (점수: {r['Score']})" for r in rubric])
     prompt = f"""
@@ -35,6 +36,12 @@ def analyze_article(title, content, rubric):
     # 혹시 모를 마크다운 기호 제거
     text = response.text.replace("```json", "").replace("```", "").strip()
     return json.loads(text)
+
+import google.generativeai as genai
+print("사용 가능한 모델 리스트:")
+for m in genai.list_models():
+    print(m.name)
+    
 
 # 2. 루브릭 가져오기
 rubric_data = spreadsheet.worksheet("Config_Rubric").get_all_records()

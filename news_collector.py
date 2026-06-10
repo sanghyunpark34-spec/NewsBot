@@ -63,3 +63,40 @@ def collect_news():
         negative_sheet = spreadsheet.worksheet("Config_Negative")
         negative_keywords = [str(r['NegativeKeyword']).strip() for r in negative_sheet.get_all_records() if str(r.get('NegativeKeyword', '')).strip()]
     except Exception as e:
+        print(f"부정 키워드 시트를 불러오는 중 오류가 발생했습니다: {e}")
+        negative_keywords = []
+    
+    print(f"수집 시작 - 대상 키워드: {len(keywords)}개, 대상 매체: {len(media_list)}개, 부정 키워드: {len(negative_keywords)}개")
+
+    for kw in keywords:
+        print(f"'{kw}' 키워드 검색 및 벌크 수집 중입니다.")
+        items = get_naver_news_bulk(kw)
+        
+        for item in items:
+            link = item['link']
+            org_link = item.get('originallink', '')
+            title = item['title']
+            description = item.get('description', '')
+            
+            if link in existing_links:
+                continue
+                
+            is_target_media = any(media in org_link or media in link for media in media_list)
+            if not is_target_media:
+                continue
+                
+            has_negative = any(neg in title or neg in description for neg in negative_keywords)
+            if has_negative:
+                continue
+                
+            pub_date = datetime.strptime(item['pubDate'], "%a, %d %b %Y %H:%M:%S %z")
+            if pub_date >= datetime.now(KST) - timedelta(days=1):
+                pub_date_str = pub_date.strftime("%Y-%m-%d %H:%M:%S")
+                
+                inbox_sheet.append_row([pub_date_str, title, link])
+                existing_links.append(link)
+
+    print("모든 키워드에 대한 타깃 매체 뉴스 수집 작업이 완료되었습니다.")
+
+if __name__ == "__main__":
+    collect_news()

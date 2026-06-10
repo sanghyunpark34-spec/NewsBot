@@ -33,22 +33,22 @@ def report_top_news():
     
     # 최근 24시간 필터링
     yesterday = datetime.now(KST) - timedelta(days=1)
+    # 최근 24시간 필터링 로직 내의 row[...] 키 값을 시트 헤더와 맞춤
     recent_news = [
         row for row in all_data 
         if datetime.strptime(row['Date'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST) >= yesterday
     ]
     
-    # 점수 상위 10개 정렬
+    # 정렬 및 출력 시에도 'Total_Score' 키 사용
     top_10 = sorted(recent_news, key=lambda x: int(x['Total_Score']), reverse=True)[:10]
     
     # 개별 메시지 발송
     for i, news in enumerate(top_10, 1):
+        # 헤더명 그대로 사용: Title, Total_Score, Link
         message = f"[{i}위] {news['Title']}\n점수: {news['Total_Score']}점\n링크: {news['Link']}"
         send_telegram_message(message)
-        # 메시지 간격 유지
-        import time
         time.sleep(1)
-
+        
 if __name__ == "__main__":
     report_top_news()
     print("리포트 전송 완료!")

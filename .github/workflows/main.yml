@@ -1,0 +1,28 @@
+name: News Automation Pipeline
+
+on:
+  schedule:
+    # 1. 수집 및 분석: 오후 4시 (KST 16:00 -> UTC 07:00)
+    - cron: '0 7 * * *' 
+    # 2. 보고: 오전 7시 (KST 07:00 -> UTC 22:00)
+    - cron: '0 22 * * *'
+  workflow_dispatch:
+
+jobs:
+  collect-and-analyze:
+    if: github.event.schedule == '0 7 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      # ... (생략: checkout, setup-python, install-dependencies) ...
+      - name: Run Collector
+        run: python news_collector.py
+      - name: Run Analyzer
+        run: python news_analyzer.py
+
+  report:
+    if: github.event.schedule == '0 22 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      # ... (생략: checkout, setup-python, install-dependencies) ...
+      - name: Run Reporter
+        run: python telegram_reporter.py

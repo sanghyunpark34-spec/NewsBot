@@ -3,6 +3,7 @@ import json
 import os
 import requests
 import time
+import pytz
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from oauth2client.service_account import ServiceAccountCredentials
@@ -24,6 +25,38 @@ def get_news_data(url):
     title = soup.select_one('h1.tit').text.strip() if soup.select_one('h1.tit') else soup.title.string
     content = soup.select_one('div.news_content').text.strip() if soup.select_one('div.news_content') else soup.get_text()
     return title, content[:2000]
+
+def process_inbox():
+    inbox_sheet = spreadsheet.worksheet("DB_Inbox")
+    archive_sheet = spreadsheet.worksheet("DB_Archive")
+    
+    # 1. 수집된 모든 기사 가져오기
+    rows = inbox_sheet.get_all_records()
+    if not rows:
+        print("분석할 기사가 없습니다.")
+        return
+
+    # 2. 기사 하나씩 순회하며 분석
+    for row in rows:
+        url = row['Link'] # 시트 헤더가 Link라고 가정
+        
+        # 중복 분석 방지 (이미 Archive에 있는지 확인)
+        if url in archive_sheet.col_values(3):
+            print(f"이미 분석됨: {url}")
+            inbox_sheet.delete_rows(2) # 분석된 건 Inbox에서 제거
+            continue
+            
+        # 3. 분석 수행 (기존 AI 분석 및 점수 로직 사용)
+        # ... [analyze_article 또는 계산 로직] ...
+        
+        # 4. 분석 결과 저장 후 Inbox에서 삭제
+        # ... [archive_sheet.append_row(...)] ...
+        inbox_sheet.delete_rows(2)
+        print(f"분석 완료 및 삭제: {url}")
+        time.sleep(2) # API 호출 간격 확보
+
+if __name__ == "__main__":
+    process_inbox()
 
 def get_ai_keywords(title, content, keyword_list):
     prompt = f"""

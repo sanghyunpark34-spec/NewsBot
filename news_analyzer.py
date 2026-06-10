@@ -4,14 +4,14 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # 인증 (기존과 동일)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
-    json.loads(os.environ["GOOGLE_SHEETS_HEAD"]), # 만약 이전과 다르다면 환경변수명 확인!
+    json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"]), # 만약 이전과 다르다면 환경변수명 확인!
     ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 )
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
 # 모델 설정 (혹시 나중에 AI를 다시 쓸 때를 위해 유지)
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-1.5-flash') 
+model = genai.GenerativeModel('gemini-3.0-flash') 
 
 def process_inbox():
     inbox_sheet = spreadsheet.worksheet("DB_Inbox")

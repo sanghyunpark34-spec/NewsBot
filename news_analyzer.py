@@ -1,6 +1,9 @@
 import gspread, json, os, requests
 from bs4 import BeautifulSoup
 import google.generativeai as genai
+import time # 상단 import문에 추가
+
+            
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
@@ -11,7 +14,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 )
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-3.5-flash')
+model = genai.GenerativeModel('gemini-2.0-flash')
 
 def get_news_data(url):
     response = requests.get(url)

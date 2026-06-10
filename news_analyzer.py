@@ -1,9 +1,8 @@
-import gspread, json, os, requests
-from bs4 import BeautifulSoup
-import google.generativeai as genai
-import time # 상단 import문에 추가
-
-            import gspread, json, os, requests, time
+import gspread
+import json
+import os
+import requests
+import time
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from oauth2client.service_account import ServiceAccountCredentials

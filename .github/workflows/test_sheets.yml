@@ -14,16 +14,4 @@ jobs:
       env:
         GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
       run: |
-        # 시크릿을 임시 파일로 저장
-        echo "$GOOGLE_SHEETS_CREDENTIALS" > credentials.json
-        # 간단한 테스트 코드 실행
-        python -c "
-        import gspread
-        from oauth2client.service_account import ServiceAccountCredentials
-        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
-        client = gspread.authorize(creds)
-        sheet = client.open('News_Management_DB').sheet1
-        sheet.insert_row(['Test', 'Date', 'Success'], 1)
-        print('연결 성공!')
-        "
+        python test_sheet.py

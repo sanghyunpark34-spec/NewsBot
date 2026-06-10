@@ -22,31 +22,29 @@ def collect_news():
     inbox_sheet = spreadsheet.worksheet("DB_Inbox")
     archive_sheet = spreadsheet.worksheet("DB_Archive")
     
-    # 아카이브 시트의 3번째 열(C열) 전체를 가져와 메모리에 저장 (중복 체크용)
-    archive_links = archive_sheet.col_values(3) 
+    # 1. Archive와 Inbox의 링크를 모두 가져와서 중복 체크 리스트로 통합
+    archive_links = archive_sheet.col_values(3)
+    inbox_links = inbox_sheet.col_values(3)
+    existing_links = archive_links + inbox_links # 두 곳 다 뒤져서 중복을 원천 차단
     
     keywords = [r['Keyword'] for r in spreadsheet.worksheet("Config_Keywords").get_all_records()]
     media_list = [r['Domain'] for r in spreadsheet.worksheet("Config_Media").get_all_records()]
     
     for media in media_list:
         for kw in keywords:
-            items = get_naver_news(f"{media} {kw}")
+            items = get_naver_news(f"{media} {kw}", display=20)
             for item in items:
-                # 기사 주소 변수: link
                 link = item['link']
                 
-                # 메모리에 저장된 링크 리스트에 없으면 수집
-                if link not in archive_links:
-                    # 기사 작성 시간 파싱
+                # 이제 Archive와 Inbox 어디에도 없는 링크만 수집
+                if link not in existing_links:
                     pub_date = datetime.strptime(item['pubDate'], "%a, %d %b %Y %H:%M:%S %z")
-                    # 24시간 이내 기사만
                     if pub_date >= datetime.now(KST) - timedelta(days=1):
-                        # 실제 기사 작성 시간을 Date 형식으로 변환하여 저장
                         pub_date_str = pub_date.strftime("%Y-%m-%d %H:%M:%S")
                         inbox_sheet.append_row([pub_date_str, item['title'], link])
                         
-                        # 중복 방지를 위해 메모리 리스트에 추가
-                        archive_links.append(link) 
+                        # 수집 즉시 existing_links에 추가하여 루프 내 중복도 방지
+                        existing_links.append(link)
 
 if __name__ == "__main__":
     collect_news()

@@ -1,6 +1,7 @@
 import gspread
 import json
 import os
+print(f"API KEY 로드 확인: {'성공' if os.environ.get('GEMINI_API_KEY') else '실패'}")
 import requests
 from bs4 import BeautifulSoup # 뉴스 본문을 긁어오는 도구
 import google.generativeai as genai

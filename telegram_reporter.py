@@ -23,6 +23,11 @@ def send_telegram_message(text):
     requests.post(url, data=payload)
 
 def report_top_news():
+    # 평일(0=월 ~ 4=금)에만 실행
+    if datetime.now(KST).weekday() >= 5:
+        print("주말입니다. 보고를 건너뜁니다.")
+        return
+        
     archive_sheet = spreadsheet.worksheet("DB_Archive")
     all_data = archive_sheet.get_all_records()
     

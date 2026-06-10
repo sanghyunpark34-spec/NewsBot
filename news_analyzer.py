@@ -12,7 +12,7 @@ spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 # 모델 설정: 사장님 환경에서 작동을 확인했던 모델명으로 세팅합니다.
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 # gemini-1.5-pro 가 가장 인지 능력이 뛰어나고 안정적입니다. (기존에 작동했던 이름으로 쓰셔도 됩니다)
-model = genai.GenerativeModel('gemini-1.5-pro') 
+model = genai.GenerativeModel('gemini-3.0-pro') 
 
 def process_inbox():
     inbox_sheet = spreadsheet.worksheet("DB_Inbox")

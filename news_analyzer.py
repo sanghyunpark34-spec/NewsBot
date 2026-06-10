@@ -27,11 +27,14 @@ def analyze_article(title, content, rubric):
     기사 제목: {title}
     기사 본문: {content}
     
-    반드시 JSON 형식으로만 응답하세요:
+    반드시 JSON 형식으로만 응답하세요. (마크다운 코드 블록 제외하고 오직 JSON 텍스트만)
     {{"reasoning": "점수 산정 근거", "total_score": "총점"}}
     """
     response = model.generate_content(prompt)
-    return json.loads(response.text)
+    
+    # 혹시 모를 마크다운 기호 제거
+    text = response.text.replace("```json", "").replace("```", "").strip()
+    return json.loads(text)
 
 # 2. 루브릭 가져오기
 rubric_data = spreadsheet.worksheet("Config_Rubric").get_all_records()

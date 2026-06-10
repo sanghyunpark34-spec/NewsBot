@@ -24,33 +24,33 @@ def process_inbox():
         print("분석할 기사가 없습니다.")
         return
 
-    for i in range(1, len(rows)):
+    # 처리할 행들을 역순으로 처리하거나, 하나씩 지우는 방식이 안전합니다.
+    # 여기서는 2행부터 하나씩 처리 후 즉시 삭제하는 방식을 사용합니다.
+    for i in range(len(rows) - 1, 0, -1):
         row_data = rows[i]
         date, title, url = row_data[0], row_data[1], row_data[2]
         
         if url in archive_links:
+            inbox_sheet.delete_rows(i + 1)
             continue
             
         try:
-            # 분석 수행
             prompt = f"다음 뉴스 기사를 분석해서 100점 만점으로 점수를 매기고, 점수만 숫자로 답변해줘. 기사 제목: {title}"
             response = model.generate_content(prompt)
-            # 숫자가 아닌 문자열이 섞일 경우를 대비해 처리
             score_text = ''.join(filter(str.isdigit, response.text))
             total_score = int(score_text) if score_text else 80
             
-            # 아카이브 저장
             archive_sheet.append_row([date, title, url, 'Naver', 0, 0, total_score, 'N'])
             archive_links.append(url)
-            print(f"분석 완료: {title} ({total_score}점)")
+            
+            # 성공 시에만 Inbox에서 해당 행 삭제
+            inbox_sheet.delete_rows(i + 1)
+            print(f"분석 완료 및 이동: {title} ({total_score}점)")
             
         except Exception as e:
             print(f"분석 실패: {e}")
             
         time.sleep(2)
-
-    # 처리된 만큼 Inbox 행 삭제 (2행부터 i행까지)
-    inbox_sheet.delete_rows(2, len(rows) - 1)
 
 if __name__ == "__main__":
     process_inbox()

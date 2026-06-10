@@ -30,6 +30,9 @@ jobs:
           GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
 
   report:
+    # 1. 핵심 추가: collect-and-analyze가 끝나야 실행됨
+    needs: collect-and-analyze 
+    # 2. 스케줄 조건 유지
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 22 * * *'
     runs-on: ubuntu-latest
     steps:

@@ -2,34 +2,48 @@ name: News Automation Pipeline
 
 on:
   schedule:
-    # 1. 수집 및 분석: 오후 4시 (KST 16:00 -> UTC 07:00)
-    - cron: '0 7 * * *' 
-    # 2. 보고: 오전 7시 (KST 07:00 -> UTC 22:00)
-    - cron: '0 22 * * *'
+    - cron: '0 7 * * *' # 오후 4시(KST) 수집/분석
+    - cron: '0 22 * * *' # 오전 7시(KST) 보고
   workflow_dispatch:
 
 jobs:
   collect-and-analyze:
-    # 아래와 같이 수동 실행(workflow_dispatch)도 허용하도록 수정
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    
-    if: github.event.schedule == '0 7 * * *'
+    # 수동 실행이거나, '0 7 * * *' 스케줄일 때만 실행
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 7 * * *'
     runs-on: ubuntu-latest
     steps:
-      # ... (생략: checkout, setup-python, install-dependencies) ...
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with: { python-version: '3.11' }
+      - name: Install dependencies
+        run: pip install gspread oauth2client requests beautifulsoup4 google-generativeai pytz
       - name: Run Collector
         run: python news_collector.py
+        env:
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
       - name: Run Analyzer
         run: python news_analyzer.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
 
   report:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    
-    if: github.event.schedule == '0 22 * * *'
+    # 수동 실행이거나, '0 22 * * *' 스케줄일 때만 실행
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 22 * * *'
     runs-on: ubuntu-latest
     steps:
-      # ... (생략: checkout, setup-python, install-dependencies) ...
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with: { python-version: '3.11' }
+      - name: Install dependencies
+        run: pip install gspread oauth2client requests pytz
       - name: Run Reporter
         run: python telegram_reporter.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}

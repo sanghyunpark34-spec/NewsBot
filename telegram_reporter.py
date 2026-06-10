@@ -5,8 +5,8 @@ import pytz
 
 # 설정 및 인증
 KST = pytz.timezone('Asia/Seoul')
-TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHAT_ID = os.environ["CHAT_ID"]
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
     json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"]),
     ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]

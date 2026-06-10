@@ -72,3 +72,20 @@ rubric_data = spreadsheet.worksheet("Config_Rubric").get_all_records()
 result = analyze_article(title, content, rubric_data)
 print(f"추출된 제목: {title}")
 print(f"분석 결과: {result}")
+
+from datetime import datetime
+
+# 1. 데이터 추출
+date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+reasoning = result.get('reasoning', '')
+total_score = result.get('total_score', '0')
+
+# 2. 시트에 기록 (DB_Archive 탭 선택)
+db_sheet = spreadsheet.worksheet("DB_Archive")
+
+# 헤더 순서에 맞춰 데이터 추가 (Date, Title, Link, Media, AI_Score, Reasoning)
+# 헤더 구성에 맞춰 항목을 배치하세요.
+db_sheet.append_row([date_str, title, test_url, "뉴스토마토", "기본점수없음", "AI분석", total_score, reasoning])
+
+print("분석 결과가 DB_Archive 시트에 기록되었습니다!")
+

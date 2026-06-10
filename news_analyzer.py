@@ -2,14 +2,14 @@ import os, json, gspread, time
 import google.generativeai as genai
 from oauth2client.service_account import ServiceAccountCredentials
 
-# 인증
+# 인증 (기존과 동일)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
-    json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"]),
+    json.loads(os.environ["GOOGLE_SHEETS_HEAD"]), # 만약 이전과 다르다면 환경변수명 확인!
     ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 )
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
-# 모델 설정: 'gemini-1.5-flash' 대신 더 안정적인 모델명으로 변경
+# 모델 설정 (혹시 나중에 AI를 다시 쓸 때를 위해 유지)
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-1.5-flash') 
 
@@ -24,8 +24,6 @@ def process_inbox():
         print("분석할 기사가 없습니다.")
         return
 
-    # 처리할 행들을 역순으로 처리하거나, 하나씩 지우는 방식이 안전합니다.
-    # 여기서는 2행부터 하나씩 처리 후 즉시 삭제하는 방식을 사용합니다.
     for i in range(len(rows) - 1, 0, -1):
         row_data = rows[i]
         date, title, url = row_data[0], row_data[1], row_data[2]
@@ -35,22 +33,22 @@ def process_inbox():
             continue
             
         try:
-            prompt = f"다음 뉴스 기사를 분석해서 100점 만점으로 점수를 매기고, 점수만 숫자로 답변해줘. 기사 제목: {title}"
-            response = model.generate_content(prompt)
-            score_text = ''.join(filter(str.isdigit, response.text))
-            total_score = int(score_text) if score_text else 80
+            # [테스트 구간] AI 분석 대신 강제로 점수 부여
+            print(f"테스트 분석 중: {title}")
+            total_score = 80 
             
+            # 아카이브 저장 (성공하는지 확인)
             archive_sheet.append_row([date, title, url, 'Naver', 0, 0, total_score, 'N'])
             archive_links.append(url)
             
             # 성공 시에만 Inbox에서 해당 행 삭제
             inbox_sheet.delete_rows(i + 1)
-            print(f"분석 완료 및 이동: {title} ({total_score}점)")
+            print(f"이동 완료: {title}")
             
         except Exception as e:
-            print(f"분석 실패: {e}")
+            print(f"실패: {e}")
             
-        time.sleep(2)
+        time.sleep(1)
 
 if __name__ == "__main__":
     process_inbox()

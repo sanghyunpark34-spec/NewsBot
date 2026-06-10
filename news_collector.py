@@ -3,7 +3,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import pytz
 
-# 설정 및 인증
 KST = pytz.timezone('Asia/Seoul')
 HEADERS = {
     "X-Naver-Client-Id": os.environ["NAVER_CLIENT_ID"], 
@@ -40,7 +39,7 @@ def get_naver_news_bulk(query):
                 break
                 
         except Exception as e:
-            print(f"API 호출 중 오류 발생: {e}")
+            print(f"API 호출 중 오류 발생 {e}")
             break
             
         time.sleep(0.3) 
@@ -58,18 +57,19 @@ def collect_news():
     keywords = [r['Keyword'] for r in spreadsheet.worksheet("Config_Keywords").get_all_records()]
     media_list = [r['Domain'] for r in spreadsheet.worksheet("Config_Media").get_all_records()]
     
-    # Config_Negative 시트에서 NegativeKeyword 열의 데이터를 실시간으로 불러옵니다.
     try:
         negative_sheet = spreadsheet.worksheet("Config_Negative")
         negative_keywords = [str(r['NegativeKeyword']).strip() for r in negative_sheet.get_all_records() if str(r.get('NegativeKeyword', '')).strip()]
     except Exception as e:
-        print(f"부정 키워드 시트를 불러오는 중 오류가 발생했습니다: {e}")
+        print(f"부정 키워드 시트를 불러오는 중 오류가 발생했습니다 {e}")
         negative_keywords = []
     
-    print(f"수집 시작 - 대상 키워드: {len(keywords)}개, 대상 매체: {len(media_list)}개, 부정 키워드: {len(negative_keywords)}개")
+    print(f"수집 시작 대상 키워드 {len(keywords)}개 대상 매체 {len(media_list)}개 부정 키워드 {len(negative_keywords)}개")
+
+    rows_to_add = []
 
     for kw in keywords:
-        print(f"'{kw}' 키워드 검색 및 벌크 수집 중입니다.")
+        print(f"{kw} 키워드 검색 및 벌크 수집 중입니다.")
         items = get_naver_news_bulk(kw)
         
         for item in items:
@@ -93,8 +93,12 @@ def collect_news():
             if pub_date >= datetime.now(KST) - timedelta(days=1):
                 pub_date_str = pub_date.strftime("%Y-%m-%d %H:%M:%S")
                 
-                inbox_sheet.append_row([pub_date_str, title, link])
+                rows_to_add.append([pub_date_str, title, link])
                 existing_links.append(link)
+
+    if rows_to_add:
+        inbox_sheet.append_rows(rows_to_add)
+        print(f"총 {len(rows_to_add)}개의 기사를 구글 시트에 성공적으로 추가했습니다.")
 
     print("모든 키워드에 대한 타깃 매체 뉴스 수집 작업이 완료되었습니다.")
 

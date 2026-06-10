@@ -1,11 +1,11 @@
 import gspread
 import json
 import os
-print(f"API KEY 로드 확인: {'성공' if os.environ.get('GEMINI_API_KEY') else '실패'}")
 import requests
-from bs4 import BeautifulSoup # 뉴스 본문을 긁어오는 도구
+from bs4 import BeautifulSoup
 import google.generativeai as genai
 from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 
 # 1. 설정 및 인증
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -18,7 +18,6 @@ spreadsheet = client.open("News_Management_DB")
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-3.5-flash')
 
-       
 def analyze_article(title, content, rubric):
     rubric_str = "\n".join([f"- {r['Criteria']}: {r['Description']} (점수: {r['Score']})" for r in rubric])
     prompt = f"""
@@ -33,59 +32,26 @@ def analyze_article(title, content, rubric):
     {{"reasoning": "점수 산정 근거", "total_score": "총점"}}
     """
     response = model.generate_content(prompt)
-    
-    # 혹시 모를 마크다운 기호 제거
     text = response.text.replace("```json", "").replace("```", "").strip()
     return json.loads(text)
 
-import google.generativeai as genai
-print("사용 가능한 모델 리스트:")
-for m in genai.list_models():
-    print(m.name)
-    
-
-# 2. 루브릭 가져오기
-rubric_data = spreadsheet.worksheet("Config_Rubric").get_all_records()
-
-# 3. 테스트 (실제 기사 제목/본문을 넣어서 테스트 가능)
-# result = analyze_article("테스트 제목", "테스트 본문 내용", rubric_data)
-# print(result)
-print("분석 엔진 로직 준비 완료!")
-
 def get_news_data(url):
-    """뉴스 URL에서 제목과 본문을 자동으로 추출"""
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
-    
-    # 네이버 뉴스 외의 일반 경제지 기사(뉴스토마토 등)의 제목/본문 태그 찾기
-    # 일반적인 기사 페이지는 <title>이나 특정 클래스를 사용합니다.
     title = soup.select_one('h1.tit').text.strip() if soup.select_one('h1.tit') else soup.title.string
     content = soup.select_one('div.news_content').text.strip() if soup.select_one('div.news_content') else soup.get_text()
-    
-    return title, content[:2000] # 토큰 제한을 위해 본문은 2000자까지만 가져오기
+    return title, content[:2000]
 
-# 실행부
+# --- 실행부 ---
 test_url = "https://www.newstomato.com/ReadNews.aspx?no=1303051"
 title, content = get_news_data(test_url)
 rubric_data = spreadsheet.worksheet("Config_Rubric").get_all_records()
-
 result = analyze_article(title, content, rubric_data)
-print(f"추출된 제목: {title}")
-print(f"분석 결과: {result}")
 
-from datetime import datetime
-
-# 1. 데이터 추출
+# 기록
 date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-reasoning = result.get('reasoning', '')
-total_score = result.get('total_score', '0')
-
-# 2. 시트에 기록 (DB_Archive 탭 선택)
 db_sheet = spreadsheet.worksheet("DB_Archive")
+db_sheet.append_row([date_str, title, test_url, "뉴스토마토", "분석완료", result['total_score'], result['reasoning']])
 
-# 헤더 순서에 맞춰 데이터 추가 (Date, Title, Link, Media, AI_Score, Reasoning)
-# 헤더 구성에 맞춰 항목을 배치하세요.
-db_sheet.append_row([date_str, title, test_url, "뉴스토마토", "기본점수없음", "AI분석", total_score, reasoning])
-
-print("분석 결과가 DB_Archive 시트에 기록되었습니다!")
-
+print(f"분석 완료: {title}")
+print("결과가 DB_Archive 시트에 기록되었습니다.")

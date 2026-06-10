@@ -10,6 +10,10 @@ on:
 
 jobs:
   collect-and-analyze:
+    # 아래와 같이 수동 실행(workflow_dispatch)도 허용하도록 수정
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    
     if: github.event.schedule == '0 7 * * *'
     runs-on: ubuntu-latest
     steps:
@@ -20,6 +24,9 @@ jobs:
         run: python news_analyzer.py
 
   report:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    
     if: github.event.schedule == '0 22 * * *'
     runs-on: ubuntu-latest
     steps:

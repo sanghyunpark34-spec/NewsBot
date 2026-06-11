@@ -1,6 +1,6 @@
 import os, json, gspread, time
 import google.generativeai as genai
-from openai import OpenAI
+from groq import Groq
 from oauth2client.service_account import ServiceAccountCredentials
 
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
@@ -12,7 +12,7 @@ spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 gemini_model = genai.GenerativeModel('gemini-3.5-flash') 
 
-openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+groq_client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
 def get_rubric_text():
     try:
@@ -24,7 +24,7 @@ def get_rubric_text():
             desc = row.get('상세 설명', row.get('Description', ''))
             score = row.get('배점', row.get('Score', 0))
             if criteria:
-                rubric_text += f"- {criteria} (최대 {score}점): {desc}\n"
+                rubric_text += f"- {criteria} (최대 {score}점) {desc}\n"
         return rubric_text
     except Exception as e:
         print(f"평가 기준표 시트를 불러오지 못했습니다. 에러 내용 {e}")
@@ -38,10 +38,10 @@ def evaluate_with_gemini(prompt):
     except Exception:
         return None
 
-def evaluate_with_gpt(prompt):
+def evaluate_with_groq(prompt):
     try:
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
+        response = groq_client.chat.completions.create(
+            model="llama3-70b-8192",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=10,
             temperature=0.1
@@ -78,20 +78,20 @@ def process_ai_score():
             base_score = 0
             
         if i < 20: 
-            evaluation_prompt = f"{rubric_prompt}\n\n위 기준을 바탕으로 다음 뉴스 기사 제목의 점수를 계산해 주세요. 부연 설명은 절대 하지 말고 오직 최종 합산된 숫자(50점 만점)만 답변해 주세요. 기사 제목: {title}"
+            evaluation_prompt = f"{rubric_prompt}\n\n위 기준을 바탕으로 다음 뉴스 기사 제목의 점수를 계산해 주세요. 부연 설명은 절대 하지 말고 오직 최종 합산된 숫자(50점 만점)만 답변해 주세요. 기사 제목 {title}"
             
             gemini_score = evaluate_with_gemini(evaluation_prompt)
-            gpt_score = evaluate_with_gpt(evaluation_prompt)
+            groq_score = evaluate_with_groq(evaluation_prompt)
             
-            if gemini_score is not None and gpt_score is not None:
-                ai_score = round((gemini_score + gpt_score) / 2)
-                print(f"듀얼 평가 완료 기사 제목 {title} 제미나이 {gemini_score}점 챗지피티 {gpt_score}점 최종 {ai_score}점")
+            if gemini_score is not None and groq_score is not None:
+                ai_score = round((gemini_score + groq_score) / 2)
+                print(f"듀얼 평가 완료 기사 제목 {title} 제미나이 {gemini_score}점 그록 {groq_score}점 최종 {ai_score}점")
             elif gemini_score is not None:
                 ai_score = gemini_score
                 print(f"제미나이 단독 평가 완료 기사 제목 {title} 최종 {ai_score}점")
-            elif gpt_score is not None:
-                ai_score = gpt_score
-                print(f"챗지피티 단독 평가 완료 기사 제목 {title} 최종 {ai_score}점")
+            elif groq_score is not None:
+                ai_score = groq_score
+                print(f"그록 단독 평가 완료 기사 제목 {title} 최종 {ai_score}점")
             else:
                 ai_score = 0
                 print(f"모든 인공지능 평가 실패 기사 제목 {title} 기본 0점 부여")

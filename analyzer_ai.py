@@ -2,6 +2,10 @@ import os, json, gspread, time
 from google import genai
 from groq import Groq
 from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
+import pytz
+
+KST = pytz.timezone('Asia/Seoul')
 
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
     json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"]),
@@ -12,65 +16,58 @@ spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 groq_client = Groq(api_key=os.environ["GROQ_API_KEY"], timeout=15.0)
 
-def get_rubric_text():
+def get_persona_and_rubric():
+    default_persona = "당신은 금융지주회사의 대체투자 및 기업 전략 기획을 담당하는 최고 전문가입니다. 100점 만점으로 변환하여 숫자만 대답하세요."
+    rubric_text = "다음은 기사 채점 기준입니다.\n\n"
+    
     try:
         rubric_sheet = spreadsheet.worksheet("Config_Rubric")
         records = rubric_sheet.get_all_records()
-        rubric_text = "다음은 기사 제목을 평가할 상세 채점 기준입니다.\n\n"
+        
         for row in records:
+            if str(row.get('Type', '')).strip().lower() == 'base':
+                default_persona = str(row.get('Persona', default_persona)).strip()
+            
             criteria = row.get('평가 기준', row.get('Criteria', ''))
             desc = row.get('상세 설명', row.get('Description', ''))
             score = row.get('배점', row.get('Score', 0))
-            if criteria:
+            if criteria and criteria.lower() != 'type':
                 rubric_text += f"- {criteria} (최대 {score}점): {desc}\n"
-        return rubric_text
     except Exception as e:
-        print(f"평가 기준표 로드 실패: {e}", flush=True)
-        return "자본 시장 동향 및 금융업 인수합병 관련성을 기준으로 평가해 주세요."
+        print(f"설정 불러오기 실패로 기본값 대체 진행 {e}", flush=True)
+        
+    return default_persona, rubric_text
 
 def evaluate_with_gemini(prompt):
     try:
-        response = gemini_client.models.generate_content(
-            model='gemini-3.5-flash',
-            contents=prompt
-        )
+        response = gemini_client.models.generate_content(model='gemini-3.5-flash', contents=prompt)
         score_text = ''.join(filter(str.isdigit, response.text))
         return min(int(score_text), 100) if score_text else None
-    except Exception as e:
-        print(f"  -> 제미나이 응답 실패: {e}", flush=True)
-        return None
+    except: return None
 
 def evaluate_with_groq(prompt):
     try:
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=10,
-            temperature=0.1
+            max_tokens=10, temperature=0.1
         )
         score_text = ''.join(filter(str.isdigit, response.choices[0].message.content))
         return min(int(score_text), 100) if score_text else None
-    except Exception as e:
-        print(f"  -> 그록 응답 실패: {e}", flush=True)
-        return None
+    except: return None
 
 def process_ai_score():
     stage_sheet = spreadsheet.worksheet("DB_Stage")
     archive_sheet = spreadsheet.worksheet("DB_Archive")
     
-    rows = stage_sheet.get_all_values()
-    if len(rows) <= 1:
-        print("인공지능 분석을 진행할 대기 기사가 없습니다.", flush=True)
-        return
-
-    rubric_prompt = get_rubric_text()
-    archive_rows = []
+    try: archive_sheet.resize(rows=1)
+    except: pass
     
-    system_persona = (
-        "당신은 금융/보험업계의 M&A, 대체투자 및 기업 전략 기획을 담당하는 최고 전문가입니다. "
-        "주어진 기준에 따라 이 기사가 당사의 자본 전략, 경쟁사 동향 파악, 또는 거시경제 리스크 관리에 "
-        "얼마나 중요한 인사이트를 주는지 100점 만점으로 변환하여 숫자만 대답하세요."
-    )
+    rows = stage_sheet.get_all_values()
+    if len(rows) <= 1: return
+
+    system_persona, rubric_prompt = get_persona_and_rubric()
+    archive_rows = []
     
     for i, row in enumerate(rows[1:]):
         if len(row) < 5: continue
@@ -78,22 +75,23 @@ def process_ai_score():
         try: base_score = float(row[4])
         except: base_score = 0.0
             
-        # [수정] 평가 진입 허들을 20점에서 0점으로 낮추어, 언론사 가중치(3~5점)만 받아도 무조건 AI 평가를 받도록 수정했습니다.
         if i < 20 and base_score > 0: 
-            print(f"\n[{i+1}/20] AI 분석 중 (Base: {base_score}): {title[:20]}...", flush=True)
+            print(f"\n[{i+1}/20] 분석 시작: {title[:18]}...", flush=True)
             evaluation_prompt = f"{system_persona}\n\n{rubric_prompt}\n\n기사 제목: {title}"
             
             gemini_score = evaluate_with_gemini(evaluation_prompt)
             groq_score = evaluate_with_groq(evaluation_prompt)
             
+            gemini_log = f"제미나이 {gemini_score}점" if gemini_score is not None else "제미나이 호출 실패"
+            groq_log = f"그록 {groq_score}점" if groq_score is not None else "그록 호출 실패"
+            
             scores = [s for s in [gemini_score, groq_score] if s is not None]
             if scores:
                 ai_score = sum(scores) / len(scores)
-                print(f"  ✅ AI 점수: {ai_score}", flush=True)
+                print(f"  -> {groq_log}, {gemini_log}, AI 스코어 {ai_score}점", flush=True)
             else:
                 ai_score = 0
-                print(f"  ❌ AI 실패", flush=True)
-                
+                print(f"  -> {groq_log}, {gemini_log}, AI 스코어 없음", flush=True)
             time.sleep(15) 
         else: 
             ai_score = 0
@@ -107,8 +105,18 @@ def process_ai_score():
 
     if archive_rows:
         archive_sheet.append_rows(archive_rows)
+        
+        try: top20_sheet = spreadsheet.worksheet("DB_Top20")
+        except:
+            top20_sheet = spreadsheet.add_worksheet(title="DB_Top20", rows="5000", cols="9")
+            top20_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Base_Score", "AI_Score", "Total_Score", "Sent"])
+            
+        exec_time = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+        top20_rows = [[exec_time] + r for r in archive_rows]
+        top20_sheet.append_rows(top20_rows)
+
     stage_sheet.resize(rows=1)
-    print("\n🎉 인공지능 분석 완료.", flush=True)
+    print("\n🎉 AI 연산 및 히스토리 영구 백업 적재 완료.", flush=True)
 
 if __name__ == "__main__":
     process_ai_score()

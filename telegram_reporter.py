@@ -26,31 +26,26 @@ def report_top_news():
         try:
             date_obj = datetime.strptime(str(r['Date']), "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
             if date_obj >= datetime.now(KST) - timedelta(days=1):
-                # 빈 칸이나 에러가 날 수 있는 값들을 안전하게 float(소수점)으로 변환
-                score_str = str(r.get('Total_Score', '0')).strip()
-                if not score_str: score_str = '0'
-                r['Total_Score_Num'] = float(score_str)
+                # 헤더 이름이 Total_Score 인지 Total Score 인지 유연하게 대처
+                score_raw = str(r.get('Total_Score', r.get('Total Score', '0'))).replace(',', '').strip()
+                if not score_raw: score_raw = '0'
+                r['Total_Score_Num'] = float(score_raw) # 무조건 숫자로 강제 변환
                 recent_news.append(r)
-        except Exception:
-            continue # 날짜 형식이 안 맞거나 문제가 있는 행은 부드럽게 패스
+        except Exception as e:
+            continue 
     
     if not recent_news:
         print("최근 24시간 내 분석된 기사가 없습니다.")
         return
 
-    # 안전하게 변환된 Total_Score_Num 기준으로 정렬
+    # 완벽하게 숫자로 변환된 Total_Score_Num을 기준으로 내림차순 정렬
     top_10 = sorted(recent_news, key=lambda x: x['Total_Score_Num'], reverse=True)[:10]
     
     for i, news in enumerate(top_10, 1):
-        msg = f"[{i}위] {news['Title']}\n점수: {news['Total_Score']}점\n링크: {news['Link']}"
+        # 메시지에 소수점까지 깔끔하게 보이도록 Total_Score_Num 사용
+        msg = f"[{i}위] {news['Title']}\n점수: {news['Total_Score_Num']}점\n링크: {news['Link']}"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        response = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
-        
-        if response.status_code == 200:
-            print(f"{i}위 메시지 전송 성공")
-        else:
-            print(f"메시지 전송 실패: {response.text}")
-            
+        requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
         time.sleep(1)
 
 if __name__ == "__main__":

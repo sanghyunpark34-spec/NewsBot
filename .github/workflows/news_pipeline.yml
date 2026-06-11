@@ -1,0 +1,70 @@
+name: News Automation Pipeline
+
+on:
+  schedule:
+    # 필요에 따라 실행 주기를 조정하여 사용하세요. (예: 월~금 매시간 작동)
+    - cron: '0 0-9 * * 1-5'
+  workflow_dispatch: # 수동 실행 버튼 활성화
+
+jobs:
+  collect-and-analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install gspread oauth2client requests google-generativeai pytz
+
+      # 1단계: 네이버 뉴스 벌크 수집 및 원본 링크 변환 적재
+      - name: Run Collector
+        env:
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+        run: python news_collector.py
+
+      # 2단계: 수집된 전체 기사 대상 알고리즘 기반 기초 점수 산정 및 Stage 이관
+      - name: Run Base Analyzer
+        env:
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+        run: python analyzer_base.py
+
+      # 3단계: Stage 기사 중 상위 20개 대상 제미나이 3.5 정밀 분석 및 Archive 최종 저장
+      - name: Run AI Analyzer
+        env:
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python analyzer_ai.py
+
+  report:
+    runs-on: ubuntu-latest
+    needs: collect-and-analyze
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install gspread oauth2client requests pytz
+
+      # 4단계: 최근 24시간 내 최종 점수(Total Score) 최상위 10개 추출 및 텔레그램 발송
+      - name: Run Reporter
+        env:
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python telegram_reporter.py

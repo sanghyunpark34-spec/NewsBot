@@ -3,7 +3,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import pytz
 
-# 설정 및 인증
 KST = pytz.timezone('Asia/Seoul')
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -15,7 +14,6 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
 def report_top_news():
-    # 1. 주말 패스 로직
     if datetime.now(KST).weekday() >= 5: 
         print("주말이라 보고를 생략합니다.")
         return 
@@ -23,18 +21,26 @@ def report_top_news():
     archive_sheet = spreadsheet.worksheet("DB_Archive")
     all_news = archive_sheet.get_all_records()
     
-    # 2. 최근 24시간 이내의 데이터만 필터링
-    recent_news = [r for r in all_news 
-                  if datetime.strptime(r['Date'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST) >= datetime.now(KST) - timedelta(days=1)]
+    recent_news = []
+    for r in all_news:
+        try:
+            date_obj = datetime.strptime(str(r['Date']), "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+            if date_obj >= datetime.now(KST) - timedelta(days=1):
+                # 빈 칸이나 에러가 날 수 있는 값들을 안전하게 float(소수점)으로 변환
+                score_str = str(r.get('Total_Score', '0')).strip()
+                if not score_str: score_str = '0'
+                r['Total_Score_Num'] = float(score_str)
+                recent_news.append(r)
+        except Exception:
+            continue # 날짜 형식이 안 맞거나 문제가 있는 행은 부드럽게 패스
     
     if not recent_news:
         print("최근 24시간 내 분석된 기사가 없습니다.")
         return
 
-    # 3. 점수 순 정렬 및 상위 10개 추출
-    top_10 = sorted(recent_news, key=lambda x: int(x['Total_Score']), reverse=True)[:10]
+    # 안전하게 변환된 Total_Score_Num 기준으로 정렬
+    top_10 = sorted(recent_news, key=lambda x: x['Total_Score_Num'], reverse=True)[:10]
     
-    # 4. 텔레그램 메시지 발송
     for i, news in enumerate(top_10, 1):
         msg = f"[{i}위] {news['Title']}\n점수: {news['Total_Score']}점\n링크: {news['Link']}"
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"

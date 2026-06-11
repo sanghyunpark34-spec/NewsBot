@@ -8,7 +8,7 @@ KST = pytz.timezone('Asia/Seoul')
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 # Secrets에서 그룹 챗 ID를 추가로 로드합니다 (설정되지 않은 경우를 대비해 get 사용)
-GROUP_CHAT_ID = os.environ.get("GROUP_CHAT_ID")
+# GROUP_CHAT_ID = os.environ.get("GROUP_CHAT_ID")
 
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
     json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"]),

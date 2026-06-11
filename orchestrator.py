@@ -28,7 +28,6 @@ def is_korean_workday():
 def run_script(script_name):
     print(f"\n[{datetime.now(KST).strftime('%H:%M:%S')}] {script_name} 가동을 시작합니다.", flush=True)
     
-    # 결과값을 모아두지 않고 실시간으로 화면에 출력하도록 옵션을 제거했습니다.
     result = subprocess.run(['python', script_name])
     
     if result.returncode == 0:
@@ -46,9 +45,10 @@ def main():
     while True:
         now = datetime.now(KST)
         
-        if now.hour >= 16:
-            print("오후 4시까지 작업이 완료되지 못해 금일 파이프라인을 최종 실패 처리하고 종료합니다.", flush=True)
-            break
+        # 테스트를 위해 최초 데드라인 검증 로직을 임시로 주석 처리했습니다.
+        # if now.hour >= 16:
+        #     print("오후 4시까지 작업이 완료되지 못해 금일 파이프라인을 최종 실패 처리하고 종료합니다.", flush=True)
+        #     break
 
         print(f"\n파이프라인 실행 시도를 시작합니다. 현재 시간은 {now.strftime('%Y-%m-%d %H:%M:%S')} 입니다.", flush=True)
 
@@ -71,9 +71,11 @@ def main():
             break
             
         now_after = datetime.now(KST)
-        if now_after.hour >= 18:
-            print("오류 발생 후 재시도하려 했으나 오후 4시가 지나 더 이상 가동하지 않습니다.", flush=True)
-            break
+        
+        # 테스트를 위해 재시도 전 데드라인 검증 로직도 임시로 주석 처리했습니다.
+        # if now_after.hour >= 16:
+        #     print("오류 발생 후 재시도하려 했으나 오후 4시가 지나 더 이상 가동하지 않습니다.", flush=True)
+        #     break
             
         print("일부 구간에 장애가 발견되어 7분 후 처음부터 다시 안전하게 재시도합니다.", flush=True)
         time.sleep(7 * 60) 

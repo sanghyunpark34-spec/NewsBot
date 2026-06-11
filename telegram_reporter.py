@@ -21,7 +21,9 @@ def report_top_news():
     archive_sheet = spreadsheet.worksheet("DB_Archive")
     all_news = archive_sheet.get_all_records()
     
-    recent_news = []
+    # 기사 제목을 기준으로 중복을 제거하기 위한 딕셔너리
+    unique_news = {}
+    
     for r in all_news:
         try:
             date_obj = datetime.strptime(str(r['Date']), "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
@@ -29,23 +31,30 @@ def report_top_news():
                 score_raw = str(r.get('Total_Score', r.get('Total Score', '0'))).replace(',', '').strip()
                 if not score_raw: score_raw = '0'
                 r['Total_Score_Num'] = float(score_raw) 
-                recent_news.append(r)
+                
+                title = str(r.get('Title', '')).strip()
+                # 이미 같은 제목이 있다면, 점수가 더 높은 것을 유지 (중복 차단 로직)
+                if title not in unique_news or r['Total_Score_Num'] > unique_news[title]['Total_Score_Num']:
+                    unique_news[title] = r
         except Exception: continue 
     
-    if not recent_news: return
+    if not unique_news: return
 
-    top_15 = sorted(recent_news, key=lambda x: x['Total_Score_Num'], reverse=True)[:15]
+    # 중복이 제거된 깨끗한 데이터 중에서 상위 15개를 추출
+    top_15 = sorted(unique_news.values(), key=lambda x: x['Total_Score_Num'], reverse=True)[:15]
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     is_scheduled = (TRIGGER_EVENT == "schedule")
 
     for i, news in enumerate(top_15, 1):
         msg = f"[{i}위] {news['Title']}\n점수: {news['Total_Score_Num']}점\n링크: {news['Link']}"
-        try:
-            requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
+        
+        try: requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
         except: pass
+        
         if GROUP_CHAT_ID and GROUP_CHAT_ID.strip() != "" and is_scheduled:
             try: requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": msg})
             except: pass
+            
         time.sleep(1.5)
 
 if __name__ == "__main__":

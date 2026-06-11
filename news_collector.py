@@ -17,33 +17,22 @@ spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
 def get_naver_news_bulk(query):
     all_items = []
-    
     for start in range(1, 1000, 100):
         url = "https://openapi.naver.com/v1/search/news.json"
         params = {"query": query, "display": 100, "start": start, "sort": "date"}
-        
         try:
             response = requests.get(url, headers=HEADERS, params=params)
-            if response.status_code != 200:
-                break
-                
+            if response.status_code != 200: break
             data = response.json()
             items = data.get('items', [])
-            if not items:
-                break
-                
+            if not items: break
             all_items.extend(items)
-            
             last_pub_date = datetime.strptime(items[-1]['pubDate'], "%a, %d %b %Y %H:%M:%S %z")
-            if last_pub_date < datetime.now(KST) - timedelta(days=1):
-                break
-                
+            if last_pub_date < datetime.now(KST) - timedelta(days=1): break
         except Exception as e:
             print(f"API 호출 중 오류 발생 {e}")
             break
-            
         time.sleep(0.3) 
-        
     return all_items
 
 def collect_news():
@@ -61,46 +50,41 @@ def collect_news():
         negative_sheet = spreadsheet.worksheet("Config_Negative")
         negative_keywords = [str(r['NegativeKeyword']).strip() for r in negative_sheet.get_all_records() if str(r.get('NegativeKeyword', '')).strip()]
     except Exception as e:
-        print(f"부정 키워드 시트를 불러오는 중 오류가 발생했습니다 {e}")
+        print(f"부정 키워드 시트 로드 실패 {e}")
         negative_keywords = []
     
-    print(f"수집 시작 대상 키워드 {len(keywords)}개 대상 매체 {len(media_list)}개 부정 키워드 {len(negative_keywords)}개")
-
+    print(f"수집 시작 - 키워드 {len(keywords)}개, 매체 {len(media_list)}개")
     rows_to_add = []
 
     for kw in keywords:
-        print(f"{kw} 키워드 검색 및 벌크 수집 중입니다.")
         items = get_naver_news_bulk(kw)
-        
         for item in items:
-            link = item['link']
-            org_link = item.get('originallink', '')
-            title = item['title']
-            description = item.get('description', '')
+            org_link = item.get('originallink', '').strip()
+            link = item['link'].strip()
+            # 실제 언론사 주소가 있으면 그것을 쓰고, 없으면 네이버 주소를 사용합니다.
+            actual_link = org_link if org_link else link
             
-            if link in existing_links:
-                continue
+            # HTML 태그 및 특수 구문 깨끗하게 청소
+            title = item['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
+            description = item.get('description', '').replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
+            
+            if actual_link in existing_links: continue
                 
-            is_target_media = any(media in org_link or media in link for media in media_list)
-            if not is_target_media:
-                continue
+            is_target_media = any(media in actual_link for media in media_list)
+            if not is_target_media: continue
                 
             has_negative = any(neg in title or neg in description for neg in negative_keywords)
-            if has_negative:
-                continue
+            if has_negative: continue
                 
             pub_date = datetime.strptime(item['pubDate'], "%a, %d %b %Y %H:%M:%S %z")
             if pub_date >= datetime.now(KST) - timedelta(days=1):
                 pub_date_str = pub_date.strftime("%Y-%m-%d %H:%M:%S")
-                
-                rows_to_add.append([pub_date_str, title, link])
-                existing_links.append(link)
+                rows_to_add.append([pub_date_str, title, actual_link])
+                existing_links.append(actual_link)
 
     if rows_to_add:
         inbox_sheet.append_rows(rows_to_add)
-        print(f"총 {len(rows_to_add)}개의 기사를 구글 시트에 성공적으로 추가했습니다.")
-
-    print("모든 키워드에 대한 타깃 매체 뉴스 수집 작업이 완료되었습니다.")
+        print(f"총 {len(rows_to_add)}개의 기사를 구글 시트에 추가했습니다.")
 
 if __name__ == "__main__":
     collect_news()

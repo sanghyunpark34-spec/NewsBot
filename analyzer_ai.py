@@ -1,5 +1,5 @@
 import os, json, gspread, time
-import google.generativeai as genai
+from google import genai
 from groq import Groq
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -9,10 +9,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 )
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-gemini_model = genai.GenerativeModel('gemini-3.5-flash') 
-
-# [수정] 그록 클라이언트에 15초 타임아웃 강제 부여
+gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 groq_client = Groq(api_key=os.environ["GROQ_API_KEY"], timeout=15.0)
 
 def get_rubric_text():
@@ -33,8 +30,10 @@ def get_rubric_text():
 
 def evaluate_with_gemini(prompt):
     try:
-        # [수정] 제미나이 요청에 15초 타임아웃 강제 부여
-        response = gemini_model.generate_content(prompt, request_options={"timeout": 15.0})
+        response = gemini_client.models.generate_content(
+            model='gemini-3.5-flash',
+            contents=prompt
+        )
         score_text = ''.join(filter(str.isdigit, response.text))
         return int(score_text) if score_text else None
     except Exception as e:
@@ -79,9 +78,7 @@ def process_ai_score():
             base_score = 0
             
         if i < 20: 
-            # [수정] 어느 기사를 평가하고 있는지 실시간(flush=True)으로 깃허브에 출력
             print(f"\n[{i+1}/20] 평가 시작: {title[:20]}...", flush=True)
-            
             evaluation_prompt = f"{rubric_prompt}\n\n위 기준을 바탕으로 다음 뉴스 기사 제목의 점수를 계산해 주세요. 부연 설명은 절대 하지 말고 오직 최종 합산된 숫자(50점 만점)만 답변해 주세요. 기사 제목 {title}"
             
             gemini_score = evaluate_with_gemini(evaluation_prompt)
@@ -99,7 +96,6 @@ def process_ai_score():
             else:
                 ai_score = 0
                 print(f"  ❌ 두 AI 모두 실패 -> 기본 0점", flush=True)
-            
             time.sleep(1) 
         else: 
             ai_score = 0

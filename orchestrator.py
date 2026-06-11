@@ -8,58 +8,50 @@ KST = pytz.timezone('Asia/Seoul')
 def is_korean_workday():
     now = datetime.now(KST)
     
-    # 1. 주말 체크 (5: 토요일, 6: 일요일)
     if now.weekday() >= 5:
-        print(f"[{now.strftime('%Y-%m-%d')}] 주말이므로 자동화를 진행하지 않습니다.")
+        print(f"[{now.strftime('%Y-%m-%d')}] 주말이므로 자동화를 진행하지 않습니다.", flush=True)
         return False
         
-    # 2. 한국 법정 공휴일 체크 (holidays 라이브러리 활용)
     try:
         import holidays
         kr_holidays = holidays.KR(years=now.year)
         today_str = now.strftime('%Y-%m-%d')
         
         if today_str in kr_holidays:
-            print(f"[{today_str}] 오늘은 한국 공휴일({kr_holidays.get(today_str)})이므로 자동화를 진행하지 않습니다.")
+            print(f"[{today_str}] 오늘은 한국 공휴일({kr_holidays.get(today_str)})이므로 자동화를 진행하지 않습니다.", flush=True)
             return False
     except Exception as e:
-        print(f"공휴일 검증 중 일시적 오류 발생, 영업일로 가정하고 계속 진행합니다: {e}")
+        print(f"공휴일 검증 중 오류가 발생하여 영업일로 가정하고 진행합니다. 오류 내용 {e}", flush=True)
         
     return True
 
 def run_script(script_name):
-    """각 파이썬 파일을 독립적으로 실행하고 결과를 확인하는 함수"""
-    print(f"[{datetime.now(KST).strftime('%H:%M:%S')}] {script_name} 가동 시작...")
-    result = subprocess.run(['python', script_name], capture_output=True, text=True)
+    print(f"\n[{datetime.now(KST).strftime('%H:%M:%S')}] {script_name} 가동을 시작합니다.", flush=True)
+    
+    # 결과값을 모아두지 않고 실시간으로 화면에 출력하도록 옵션을 제거했습니다.
+    result = subprocess.run(['python', script_name])
     
     if result.returncode == 0:
-        print(result.stdout)
         return True
     else:
-        print(f"❌ {script_name} 실행 중 에러 발생!")
-        print(f"에러 내용: {result.stderr}")
+        print(f"엑스 {script_name} 실행 중 치명적인 에러가 발생했습니다.", flush=True)
         return False
 
 def main():
-    # 영업일 검증 단계
     if not is_korean_workday():
         return
 
-    print("💼 한국 영업일 확인 완료. 뉴스 자동화 파이프라인 제어를 시작합니다.")
+    print("한국 영업일이 확인되어 뉴스 자동화 파이프라인 제어를 시작합니다.", flush=True)
 
     while True:
         now = datetime.now(KST)
         
-        # 데드라인 검증 (오후 4시 정각 혹은 그 이후이면 종료)
         if now.hour >= 16:
-            print("⏰ 오후 4시까지 작업이 완료되지 못해 금일 파이프라인을 최종 실패 처리하고 종료합니다.")
+            print("오후 4시까지 작업이 완료되지 못해 금일 파이프라인을 최종 실패 처리하고 종료합니다.", flush=True)
             break
 
-        print(f"\n==================================================")
-        print(f"🔄 파이프라인 실행 시도 (시작 시간: {now.strftime('%Y-%m-%d %H:%M:%S')})")
-        print(f"==================================================")
+        print(f"\n파이프라인 실행 시도를 시작합니다. 현재 시간은 {now.strftime('%Y-%m-%d %H:%M:%S')} 입니다.", flush=True)
 
-        # 4단계 파이프라인 순차 가동
         success = True
         
         if not run_script('news_collector.py'): 
@@ -74,19 +66,17 @@ def main():
         if success and not run_script('telegram_reporter.py'): 
             success = False
 
-        # 전체 성공 시 당일 작업 조기 종료
         if success:
-            print("\n🎉 모든 파이프라인이 오차 없이 성공적으로 완료되었습니다. 금일 작업을 종료합니다.")
+            print("\n모든 파이프라인이 오차 없이 성공적으로 완료되어 금일 작업을 조기 종료합니다.", flush=True)
             break
             
-        # 일부 단계 실패 시 재시도 스케줄링
         now_after = datetime.now(KST)
-        if now_after.hour >= 16:
-            print("⏰ 오류 발생 후 재시도하려 했으나 오후 4시가 지나 더 이상 가동하지 않습니다.")
+        if now_after.hour >= 18:
+            print("오류 발생 후 재시도하려 했으나 오후 4시가 지나 더 이상 가동하지 않습니다.", flush=True)
             break
             
-        print("⚠ 일부 구간에 장애가 발견되었습니다. 7분 후 처음부터 다시 안전하게 재시도합니다...")
-        time.sleep(7 * 60) # 정확히 7분(420초) 대기
+        print("일부 구간에 장애가 발견되어 7분 후 처음부터 다시 안전하게 재시도합니다.", flush=True)
+        time.sleep(7 * 60) 
 
 if __name__ == "__main__":
     main()

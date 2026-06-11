@@ -16,17 +16,17 @@ def get_rubric_text():
     try:
         rubric_sheet = spreadsheet.worksheet("Config_Rubric")
         records = rubric_sheet.get_all_records()
-        rubric_text = "다음은 기사 제목을 평가할 50점 만점의 상세 채점 기준입니다.\n\n"
+        rubric_text = "다음은 기사 제목을 평가할 상세 채점 기준입니다.\n\n"
         for row in records:
             criteria = row.get('평가 기준', row.get('Criteria', ''))
             desc = row.get('상세 설명', row.get('Description', ''))
             score = row.get('배점', row.get('Score', 0))
             if criteria:
-                rubric_text += f"- {criteria} (최대 {score}점) {desc}\n"
+                rubric_text += f"- {criteria} (최대 {score}점): {desc}\n"
         return rubric_text
     except Exception as e:
         print(f"평가 기준표 로드 실패: {e}", flush=True)
-        return "자본 시장 동향 및 금융업 인수합병 관련성을 기준으로 50점 만점으로 평가해 주세요."
+        return "자본 시장 동향 및 금융업 인수합병 관련성을 기준으로 평가해 주세요."
 
 def evaluate_with_gemini(prompt):
     try:
@@ -42,8 +42,9 @@ def evaluate_with_gemini(prompt):
 
 def evaluate_with_groq(prompt):
     try:
+        # [수정] 서비스가 종료된 구형 모델 대신 가장 최신 버전을 사용합니다.
         response = groq_client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=10,
             temperature=0.1
@@ -79,28 +80,36 @@ def process_ai_score():
             
         if i < 20: 
             print(f"\n[{i+1}/20] 평가 시작: {title[:20]}...", flush=True)
-            evaluation_prompt = f"{rubric_prompt}\n\n위 기준을 바탕으로 다음 뉴스 기사 제목의 점수를 계산해 주세요. 부연 설명은 절대 하지 말고 오직 최종 합산된 숫자(50점 만점)만 답변해 주세요. 기사 제목 {title}"
+            # [수정] 100점 만점으로 통일하여 환산하도록 프롬프트를 명확히 수정했습니다.
+            evaluation_prompt = f"{rubric_prompt}\n\n위 기준을 바탕으로 다음 뉴스 기사 제목의 점수를 계산한 뒤, 반드시 100점 만점 기준으로 환산해 주세요. 부연 설명은 절대 하지 말고 오직 최종 변환된 숫자(100점 만점)만 답변해 주세요. 기사 제목: {title}"
             
             gemini_score = evaluate_with_gemini(evaluation_prompt)
             groq_score = evaluate_with_groq(evaluation_prompt)
             
             if gemini_score is not None and groq_score is not None:
                 ai_score = round((gemini_score + groq_score) / 2)
-                print(f"  ✅ 듀얼 완료 (제미나이 {gemini_score}점 / 그록 {groq_score}점) -> 최종 {ai_score}점", flush=True)
+                print(f"  ✅ 듀얼 완료 (제미나이 {gemini_score}점 / 그록 {groq_score}점) -> 합산평균 {ai_score}점", flush=True)
             elif gemini_score is not None:
                 ai_score = gemini_score
-                print(f"  ⚠ 제미나이 단독 완료 -> 최종 {ai_score}점", flush=True)
+                print(f"  ⚠ 제미나이 단독 완료 -> {ai_score}점", flush=True)
             elif groq_score is not None:
                 ai_score = groq_score
-                print(f"  ⚠ 그록 단독 완료 -> 최종 {ai_score}점", flush=True)
+                print(f"  ⚠ 그록 단독 완료 -> {ai_score}점", flush=True)
             else:
                 ai_score = 0
-                print(f"  ❌ 두 AI 모두 실패 -> 기본 0점", flush=True)
-            time.sleep(1) 
+                print(f"  ❌ 두 AI 모두 실패 -> AI 점수 없음", flush=True)
+                
+            # [수정] 제미나이 무료 쿼터 제한(1분에 5회) 우회를 위해 무조건 13초를 대기합니다.
+            time.sleep(13) 
         else: 
             ai_score = 0
             
-        total_score = round((base_score * 0.5) + ai_score, 2)
+        # [수정] AI 점수 유무에 따른 산식 분리 적용 (AI 0.55 / Base 0.45)
+        if ai_score > 0:
+            total_score = round((base_score * 0.45) + (ai_score * 0.55), 2)
+        else:
+            total_score = base_score
+            
         archive_rows.append([date, title, url, matched_media, base_score, ai_score, total_score, 'N'])
 
     if archive_rows:

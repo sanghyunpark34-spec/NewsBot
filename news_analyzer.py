@@ -9,7 +9,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-3.0-flash') 
+model = genai.GenerativeModel('gemini-3.5-flash') 
 
 def process_inbox():
     inbox_sheet = spreadsheet.worksheet("DB_Inbox")
@@ -22,7 +22,13 @@ def process_inbox():
         print("분석할 기사가 없습니다.")
         return
 
+    processed_count = 0
+
     for i in range(len(rows) - 1, 0, -1):
+        if processed_count >= 100:
+            print("100개의 기사 분석을 완료하여 작업을 일시 종료합니다.")
+            break
+
         row_data = rows[i]
         date = row_data[0]
         title = row_data[1]
@@ -42,6 +48,7 @@ def process_inbox():
             archive_links.append(url)
             
             inbox_sheet.delete_rows(i + 1)
+            processed_count += 1
             print(f"분석 완료 및 이동 완료 기사 제목 {title} 배점 {total_score}점")
             
         except Exception as e:

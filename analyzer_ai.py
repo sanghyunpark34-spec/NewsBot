@@ -57,12 +57,13 @@ def process_ai_score():
     
     for i, row in enumerate(rows[1:]):
         if len(row) < 6: continue
-        # Matched_Keywords가 추가되면서 인덱스가 한 칸씩 뒤로 밀린 것을 보정합니다.
         date, title, url, matched_media, matched_keywords = row[0], row[1], row[2], row[3], row[4]
         try: base_score = float(row[5])
         except: base_score = 0.0
             
         ai_score = 0
+        ai_evaluated = False # AI 평가 진행 여부를 추적하는 플래그를 생성합니다.
+        
         if i < 20 and base_score > 0 and engine != "AI 사용 안 함":
             print(f"\n분석 시작 [{engine}]: {title[:18]}...", flush=True)
             prompt = f"{system_persona}\n\n{rubric_prompt}\n\n기사 제목: {title}"
@@ -82,13 +83,19 @@ def process_ai_score():
                     scores.append(min(int(score_text), 100))
                 except: pass
                 
-            if scores: ai_score = sum(scores) / len(scores)
+            if scores: 
+                ai_score = sum(scores) / len(scores)
+                ai_evaluated = True # 정상적으로 스코어가 산출되었음을 기록합니다.
             time.sleep(5) 
             
+        # 💡 [버그 수정] AI 엔진 작동 시, 평가를 받지 못한 하위권 기사들은 최종 점수를 0점 처리하여 역전을 차단합니다.
         if engine == "AI 사용 안 함":
             total_score = round(base_score, 2)
         else:
-            total_score = round((base_score * 0.45) + (ai_score * 0.55), 2) if ai_score > 0 else round(base_score, 2)
+            if ai_evaluated:
+                total_score = round((base_score * 0.45) + (ai_score * 0.55), 2)
+            else:
+                total_score = 0.0 # AI 평가를 거치지 않은 뉴스나 에러 기사는 순위권에서 즉시 배제합니다.
             
         archive_rows.append([date, title, url, matched_media, matched_keywords, base_score, ai_score, total_score, 'N'])
 
@@ -101,7 +108,6 @@ def process_ai_score():
             top20_sheet = spreadsheet.add_worksheet(title="DB_Top20", rows="5000", cols="10")
             top20_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Matched_Keywords", "Base_Score", "AI_Score", "Total_Score", "Sent"])
         
-        # 정렬 기준 인덱스를 Total_Score 위치(7)로 변경하여 정확하게 탑 20을 슬라이싱합니다.
         sorted_for_top20 = sorted(archive_rows, key=lambda x: float(x[7]), reverse=True)[:20]
         exec_time = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         top20_rows = [[exec_time] + r for r in sorted_for_top20]

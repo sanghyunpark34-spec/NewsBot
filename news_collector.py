@@ -30,7 +30,7 @@ def get_naver_news_bulk(query):
             last_pub_date = datetime.strptime(items[-1]['pubDate'], "%a, %d %b %Y %H:%M:%S %z")
             if last_pub_date < datetime.now(KST) - timedelta(days=1): break
         except Exception as e:
-            print(f"API 호출 중 오류 발생하여 수집을 중단합니다. 사유는 다음과 같습니다. {e}")
+            print(f"API 호출 중 오류가 발생했습니다. {e}")
             break
         time.sleep(0.3) 
     return all_items
@@ -54,37 +54,35 @@ def collect_news():
     keywords = [r['Keyword'] for r in keyword_records if str(r.get('Keyword', '')).strip()]
     media_list = [r['Domain'] for r in spreadsheet.worksheet("Config_Media").get_all_records() if str(r.get('Domain', '')).strip()]
     
-    # 코드 내부에 항상 제외할 상시 키워드 5개를 고정 세팅합니다.
     hardcoded_negatives = ["바이오", "부동산", "뷰티", "스포츠", "이글스"]
     
     try:
         negative_sheet = spreadsheet.worksheet("Config_Negative")
         sheet_negatives = [str(r['Keyword']).strip() for r in negative_sheet.get_all_records() if str(r.get('Keyword', '')).strip()]
-    except Exception as e:
-        print(f"부정 키워드 시트를 로드하는 데 실패했습니다. 사유는 다음과 같습니다. {e}")
+    except Exception:
         sheet_negatives = []
     
-    # 고정 키워드와 시트에서 가져온 키워드를 합치고 중복을 제거합니다.
     all_negative_keywords = list(set(hardcoded_negatives + sheet_negatives))
-    
-    exclusion_query = ""
-    if all_negative_keywords:
-        exclusion_query = " -" + " -".join(all_negative_keywords)
     
     print(f"가중치 우선 수집을 시작합니다. 타깃 키워드는 총 {len(keywords)}개이며, 필터링할 제외 키워드는 총 {len(all_negative_keywords)}개입니다.")
     rows_to_add = []
 
     for kw in keywords:
-        smart_query = kw + exclusion_query
-        print(f"다음 검색 쿼리를 실행합니다. {smart_query}")
+        print(f"[{kw}] 키워드로 기사를 수집한 후 제외어 필터링을 진행합니다.")
+        items = get_naver_news_bulk(kw)
         
-        items = get_naver_news_bulk(smart_query)
         for item in items:
+            title = item['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
+            description = item.get('description', '').replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
+            
+            # 파이썬 메모리 단에서 제외어 즉시 차단 로직을 실행합니다.
+            has_negative = any(neg in title or neg in description for neg in all_negative_keywords)
+            if has_negative: 
+                continue
+                
             org_link = item.get('originallink', '').strip()
             link = item['link'].strip()
             actual_link = org_link if org_link else link
-            
-            title = item['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
             
             if actual_link in existing_links: continue
                 
@@ -100,6 +98,8 @@ def collect_news():
     if rows_to_add:
         inbox_sheet.append_rows(rows_to_add)
         print(f"총 {len(rows_to_add)}개의 정제된 기사를 구글 시트에 안전하게 추가했습니다.")
+    else:
+        print("조건에 맞는 새로운 기사가 없습니다.")
 
 if __name__ == "__main__":
     collect_news()

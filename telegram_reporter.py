@@ -1,68 +1,41 @@
 import os, json, gspread, requests
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime, timedelta
-import pytz
+import pandas as pd
 
-KST = pytz.timezone('Asia/Seoul')
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-GROUP_CHAT_ID = os.environ.get("GROUP_CHAT_ID", "")
-TRIGGER_EVENT = os.environ.get("GITHUB_EVENT_NAME", "unknown")
-
-creds = ServiceAccountCredentials.from_json_keyfile_dict(
-    json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"]),
-    ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-)
-spreadsheet = gspread.authorize(creds).open("News_Management_DB")
-
-def report_top_news():
-    if datetime.now(KST).weekday() >= 5: return 
-    
-    archive_sheet = spreadsheet.worksheet("DB_Archive")
-    raw_values = archive_sheet.get_all_values()
-    if len(raw_values) <= 1: return
-    
-    all_news = archive_sheet.get_all_records()
-    unique_news = {}
-    
-    for r in all_news:
-        try:
-            score_raw = str(r.get('Total_Score', '0')).replace(',', '').strip()
-            r['Total_Score_Num'] = float(score_raw) if score_raw else 0.0
-            title = str(r.get('Title', '')).strip()
-            if title not in unique_news or r['Total_Score_Num'] > unique_news[title]['Total_Score_Num']:
-                unique_news[title] = r
-        except: continue 
-
-    top_15 = sorted(unique_news.values(), key=lambda x: x['Total_Score_Num'], reverse=True)[:15]
-    if not top_15: return
-
-    # 하나의 통합 메시지로 구성합니다.
-    msg_parts = ["📰 오늘의 주요 금융 뉴스\n"]
-    for i, news in enumerate(top_15, 1):
-        msg_parts.append(f"{i}. {news['Title']}\n{news['Link']}")
-    
-    final_msg = "\n\n".join(msg_parts)
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    is_scheduled = (TRIGGER_EVENT == "schedule")
-
-    sent_success = False
+def send_telegram_message(chat_id, bot_token, text):
+    if not chat_id or not bot_token: 
+        return
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id, 
+        "text": text[:4000], 
+        "disable_web_page_preview": True
+    }
     try:
-        res = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": final_msg})
-        if res.status_code == 200: sent_success = True
-    except: pass
-    
-    if GROUP_CHAT_ID and GROUP_CHAT_ID.strip() != "" and is_scheduled:
-        try: requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": final_msg})
-        except: pass
-        
-    if sent_success:
-        for news in top_15:
-            for idx, row_val in enumerate(raw_values, 1):
-                if idx == 1: continue
-                if str(row_val[1]).strip() == str(news['Title']).strip() and str(row_val[2]).strip() == str(news['Link']).strip():
-                    archive_sheet.update_cell(idx, 8, 'Y')
-                    break
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"텔레그램 발송 중 오류가 발생했습니다. {e}")
 
-if __name__ == "__main__":
-    report_top_news()
+def run_reporter():
+    creds_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
+    if not creds_json:
+        print("구글 시트 인증 정보가 없습니다.")
+        return
+
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(
+        json.loads(creds_json),
+        ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    )
+    spreadsheet = gspread.authorize(creds).open("News_Management_DB")
+
+    try:
+        sys_sheet = spreadsheet.worksheet("Config_System")
+        sys_data = sys_sheet.get_all_records()
+        config = {str(row.get("Key")): str(row.get("Value")) for row in sys_data}
+    except Exception as e:
+        print(f"설정 시트를 읽는 데 실패했습니다. {e}")
+        return
+
+    tg_group_send = config.get("TELEGRAM_GROUP_SEND", "OFF")
+    tg_author_send = config

@@ -56,9 +56,10 @@ def process_ai_score():
     archive_rows = []
     
     for i, row in enumerate(rows[1:]):
-        if len(row) < 5: continue
-        date, title, url, matched_media = row[0], row[1], row[2], row[3]
-        try: base_score = float(row[4])
+        if len(row) < 6: continue
+        # Matched_Keywords가 추가되면서 인덱스가 한 칸씩 뒤로 밀린 것을 보정합니다.
+        date, title, url, matched_media, matched_keywords = row[0], row[1], row[2], row[3], row[4]
+        try: base_score = float(row[5])
         except: base_score = 0.0
             
         ai_score = 0
@@ -89,20 +90,19 @@ def process_ai_score():
         else:
             total_score = round((base_score * 0.45) + (ai_score * 0.55), 2) if ai_score > 0 else round(base_score, 2)
             
-        archive_rows.append([date, title, url, matched_media, base_score, ai_score, total_score, 'N'])
+        archive_rows.append([date, title, url, matched_media, matched_keywords, base_score, ai_score, total_score, 'N'])
 
     if archive_rows:
-        # 1. DB_Archive에는 연산된 모든 데이터를 기록
         archive_sheet.append_rows(archive_rows)
         
-        # 2. DB_Top20에는 Total_Score(인덱스 6) 기준으로 내림차순 정렬 후 상위 20개만 적재
         try: 
             top20_sheet = spreadsheet.worksheet("DB_Top20")
         except: 
-            top20_sheet = spreadsheet.add_worksheet(title="DB_Top20", rows="5000", cols="9")
-            top20_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Base_Score", "AI_Score", "Total_Score", "Sent"])
+            top20_sheet = spreadsheet.add_worksheet(title="DB_Top20", rows="5000", cols="10")
+            top20_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Matched_Keywords", "Base_Score", "AI_Score", "Total_Score", "Sent"])
         
-        sorted_for_top20 = sorted(archive_rows, key=lambda x: float(x[6]), reverse=True)[:20]
+        # 정렬 기준 인덱스를 Total_Score 위치(7)로 변경하여 정확하게 탑 20을 슬라이싱합니다.
+        sorted_for_top20 = sorted(archive_rows, key=lambda x: float(x[7]), reverse=True)[:20]
         exec_time = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         top20_rows = [[exec_time] + r for r in sorted_for_top20]
         

@@ -5,8 +5,10 @@ import json
 import pandas as pd
 import requests
 
+# 1. 페이지 기본 설정
 st.set_page_config(page_title="뉴스 자동화 대시보드", page_icon="📰", layout="wide")
 
+# 2. 구글 시트 연결
 @st.cache_resource
 def init_connection():
     creds_dict = json.loads(st.secrets["GOOGLE_SHEETS_CREDENTIALS"])
@@ -23,9 +25,32 @@ except Exception as e:
     st.stop()
 
 st.sidebar.title("통합 제어판 ⚙️")
+
+# --- [수정] 원격 실행 버튼 (좌측 사이드바 상단 고정, 하드코딩 적용) ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🚀 퀵 파이프라인 실행")
+if st.sidebar.button("▶️ 지금 파이프라인 가동", type="primary", use_container_width=True):
+    github_repo = "sanghyunpark34-spec/NewsBot"
+    workflow_file = "news_pipeline.yml"
+    
+    if "GITHUB_TOKEN" not in st.secrets:
+        st.sidebar.error("스트림릿 Secrets 금고에 GITHUB_TOKEN이 등록되지 않았습니다.")
+    else:
+        url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/dispatches"
+        headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}", "Accept": "application/vnd.github.v3+json"}
+        with st.spinner('깃허브 서버 가동 중...'):
+            res = requests.post(url, headers=headers, json={"ref": "main"})
+        
+        if res.status_code == 204: 
+            st.sidebar.success("🚀 가동 명령 송신 완료! 곧 텔레그램으로 전송됩니다.")
+        else: 
+            st.sidebar.error(f"가동 실패 (코드: {res.status_code})")
+st.sidebar.markdown("---")
+
+# --- 메뉴 구성 (파이프라인 제어 탭 삭제) ---
 menu = st.sidebar.radio(
-    "메뉴를 선택하세요",
-    ["📊 종합 상황판", "🔑 키워드 & 매체 제어", "🤖 AI 및 시스템 설정", "🚀 파이프라인 제어"]
+    "세부 메뉴를 선택하세요",
+    ["📊 종합 상황판", "🔑 키워드 & 매체 제어", "🤖 AI 및 시스템 설정"]
 )
 
 if menu == "📊 종합 상황판":
@@ -60,7 +85,7 @@ elif menu == "🔑 키워드 & 매체 제어":
         except Exception: st.error("키워드 시트를 찾을 수 없습니다.")
 
         st.subheader("🚫 제외 키워드 (Config_Negative)")
-        st.info("여기에 등록된 단어가 기사 제목에 포함되면 즉시 0점 처리됩니다. (예: Keyword 열에 '부동산' 입력)")
+        st.info("여기에 등록된 단어가 기사 제목에 포함되면 즉시 0점 처리됩니다.")
         try:
             try: neg_sheet = spreadsheet.worksheet("Config_Negative")
             except: 
@@ -72,7 +97,7 @@ elif menu == "🔑 키워드 & 매체 제어":
                     neg_sheet.clear()
                     neg_sheet.update([edited_df_neg.columns.values.tolist()] + edited_df_neg.values.tolist())
                 st.success("제외 키워드 저장 완료!")
-        except Exception: st.error("제외 키워드 시트 생성 실패.")
+        except Exception: st.error("제외 키워드 시트 오류.")
 
     with col2:
         st.subheader("📡 타깃 매체 설정 (Config_Media)")
@@ -103,13 +128,13 @@ elif menu == "🤖 AI 및 시스템 설정":
         for row in sys_data:
             if row.get("Key") == "AI_ENGINE": current_engine = row.get("Value")
             
-        engine_options = ["AI 사용 안 함", "무료 Gemini", "무료 Groq", "유료 Claude (예정)"]
+        engine_options = ["AI 사용 안 함", "무료 Gemini", "무료 Groq", "전체"]
         selected_engine = st.selectbox("파이프라인에서 사용할 인공지능을 선택하세요.", engine_options, index=engine_options.index(current_engine) if current_engine in engine_options else 0)
         
         if st.button("💾 엔진 설정 저장", type="primary"):
             cell = sys_sheet.find("AI_ENGINE")
             sys_sheet.update_cell(cell.row, cell.col + 1, selected_engine)
-            st.success(f"[{selected_engine}] 모드로 성공적으로 전환되었습니다.")
+            st.success(f"[{selected_engine}] 모드로 전환되었습니다.")
     except Exception as e: st.error(f"시스템 설정 오류: {e}")
 
     st.markdown("---")
@@ -123,19 +148,3 @@ elif menu == "🤖 AI 및 시스템 설정":
                 rubric_sheet.update([edited_df_rubric.columns.values.tolist()] + edited_df_rubric.values.tolist())
             st.success("저장 완료!")
     except Exception: st.error("평가 기준 시트를 찾을 수 없습니다.")
-
-elif menu == "🚀 파이프라인 제어":
-    st.title("🚀 수동 파이프라인 가동")
-    st.markdown("---")
-    github_repo = st.text_input("깃허브 저장소 주소", placeholder="예: MyName/NewsBot")
-    workflow_file = st.text_input("워크플로우 파일명", value="news_pipeline.yml")
-    
-    if st.button("▶️ 지금 파이프라인 가동", type="primary"):
-        if not github_repo or "GITHUB_TOKEN" not in st.secrets:
-            st.error("저장소 주소 또는 깃허브 토큰이 누락되었습니다.")
-        else:
-            url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/dispatches"
-            headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}", "Accept": "application/vnd.github.v3+json"}
-            res = requests.post(url, headers=headers, json={"ref": "main"})
-            if res.status_code == 204: st.success("🚀 파이프라인 연산이 시작되었습니다!")
-            else: st.error("가동 실패를 확인해주세요.")

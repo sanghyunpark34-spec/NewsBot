@@ -20,7 +20,7 @@ def init_connection():
 try:
     spreadsheet = init_connection()
 except Exception as e:
-    st.error(f"구글 시트 연결에 실패했습니다: {e}")
+    st.error(f"구글 시트 연결에 실패했습니다. {e}")
     st.stop()
 
 st.sidebar.title("통합 제어판 ⚙️")
@@ -73,7 +73,7 @@ if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_c
         if res.status_code == 204: 
             st.sidebar.success("🚀 가동 명령 송신 완료! 곧 텔레그램으로 전송됩니다.")
         else: 
-            st.sidebar.error(f"가동 실패 (코드: {res.status_code})")
+            st.sidebar.error(f"가동 실패 코드를 확인해주세요. ({res.status_code})")
 st.sidebar.markdown("---")
 
 menu = st.sidebar.radio(
@@ -107,7 +107,7 @@ elif menu == "🔑 포함/제외 단어 제어":
     
     with col1:
         st.subheader("📌 타깃 키워드 점수 설정 (Max 10)")
-        st.write("우측의 숫자를 조절하여 키워드 점수를 조절하세요.")
+        st.write("우측의 숫자를 조절하여 긍정 키워드 점수를 조절하세요.")
         try:
             kw_sheet = spreadsheet.worksheet("Config_Keywords")
             kw_data = kw_sheet.get_all_records()
@@ -125,7 +125,7 @@ elif menu == "🔑 포함/제외 단어 제어":
                 updated_kws.append([kw, new_w])
                 
             st.markdown("---")
-            with st.expander("➕ 새로운 키워드 추가하기"):
+            with st.expander("➕ 새로운 타깃 키워드 추가하기"):
                 new_kw = st.text_input("새로 추가할 키워드 입력")
                 new_w = st.number_input("새 키워드 점수", min_value=0.0, max_value=10.0, value=1.0, step=1.0)
             
@@ -137,11 +137,11 @@ elif menu == "🔑 포함/제외 단어 제어":
                     kw_sheet.update([["Keyword", "Weight"]] + updated_kws)
                 st.success("타깃 키워드가 성공적으로 저장되었습니다!")
         except Exception as e: 
-            st.error(f"키워드 시트 오류: {e}")
+            st.error(f"키워드 시트 오류가 발생했습니다. {e}")
 
     with col2:
         st.subheader("🚫 제외 단어 감점 설정")
-        st.write("표에 단어와 차감할 점수(양수)를 입력하세요. 기사당 최대 2개 단어까지 감점이 합산 적용됩니다.")
+        st.write("우측의 숫자를 조절하여 차감할 감점 폭을 세밀하게 조절하세요.")
         try:
             try: neg_sheet = spreadsheet.worksheet("Config_Negative")
             except: 
@@ -149,19 +149,33 @@ elif menu == "🔑 포함/제외 단어 제어":
                 neg_sheet.append_row(["Keyword", "Coefficient"])
             
             neg_data = neg_sheet.get_all_records()
-            df_neg = pd.DataFrame(neg_data)
-            if 'Coefficient' not in df_neg.columns:
-                df_neg['Coefficient'] = 20.0
-                
-            edited_df_neg = st.data_editor(df_neg[['Keyword', 'Coefficient']], num_rows="dynamic", use_container_width=True)
             
-            if st.button("💾 제외 단어 표 저장", type="primary"):
+            updated_negs = []
+            for idx, row in enumerate(neg_data):
+                kw = str(row.get('Keyword', '')).strip()
+                if not kw: continue
+                c1, c2 = st.columns([3, 1.5])
+                with c1:
+                    st.markdown(f"<div style='padding-top: 8px; font-weight: 600; font-size: 16px;'>{kw}</div>", unsafe_allow_html=True)
+                with c2:
+                    current_w = float(row.get('Coefficient', 20.0))
+                    new_w = st.number_input("감점", min_value=0.0, max_value=100.0, value=current_w, step=1.0, key=f"neg_{idx}", label_visibility="collapsed")
+                updated_negs.append([kw, new_w])
+                
+            st.markdown("---")
+            with st.expander("➕ 새로운 제외 단어 추가하기"):
+                new_neg = st.text_input("새로 추가할 제외 단어 입력")
+                new_nw = st.number_input("새 단어 감점 폭", min_value=0.0, max_value=100.0, value=20.0, step=1.0)
+            
+            if st.button("💾 제외 단어 모두 저장", type="primary"):
+                if new_neg.strip() != "":
+                    updated_negs.append([new_neg.strip(), new_nw])
                 with st.spinner('저장 중...'):
                     neg_sheet.clear()
-                    neg_sheet.update([["Keyword", "Coefficient"]] + edited_df_neg.values.tolist())
+                    neg_sheet.update([["Keyword", "Coefficient"]] + updated_negs)
                 st.success("제외 단어 설정이 성공적으로 저장되었습니다!")
         except Exception as e: 
-            st.error(f"제외 키워드 시트 오류: {e}")
+            st.error(f"제외 키워드 시트 오류가 발생했습니다. {e}")
 
 elif menu == "📡 타깃 매체 제어":
     st.title("📡 타깃 매체 가중치 제어")
@@ -198,7 +212,7 @@ elif menu == "📡 타깃 매체 제어":
                 media_sheet.update([["Domain", "Weight"]] + updated_media)
             st.success("매체 가중치가 성공적으로 저장되었습니다!")
     except Exception as e: 
-        st.error(f"매체 시트 오류: {e}")
+        st.error(f"매체 시트 오류가 발생했습니다. {e}")
 
 elif menu == "🤖 AI 및 시스템 설정":
     st.title("🤖 AI 엔진 및 페르소나 설정")
@@ -224,7 +238,7 @@ elif menu == "🤖 AI 및 시스템 설정":
             cell = sys_sheet.find("AI_ENGINE")
             sys_sheet.update_cell(cell.row, cell.col + 1, selected_engine)
             st.success(f"[{selected_engine}] 모드로 전환되었습니다.")
-    except Exception as e: st.error(f"시스템 설정 오류: {e}")
+    except Exception as e: st.error(f"시스템 설정 오류가 발생했습니다. {e}")
 
     st.markdown("---")
     st.subheader("📜 AI 페르소나 및 평가 기준 (Config_Rubric)")

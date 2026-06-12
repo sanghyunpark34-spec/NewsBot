@@ -27,7 +27,7 @@ st.sidebar.title("통합 제어판 ⚙️")
 
 timer_html = """
 <div style="background-color: #E8F1FF; padding: 12px; border-radius: 8px; text-align: center; margin-bottom: 10px;">
-    <div style="font-size: 13px; color: #4F8BF9; font-weight: bold; margin-bottom: 4px;">⏱️ 다음 자동 기사 서치(오후 3시)까지</div>
+    <div style="font-size: 13px; color: #4F8BF9; font-weight: bold; margin-bottom: 4px;">⏱️ 다음 자동 기사 서치(오후 3시 17분)까지</div>
     <div id="countdown" style="font-size: 22px; font-weight: 900; color: #1E3A8A;"></div>
 </div>
 <script>
@@ -37,9 +37,9 @@ timer_html = """
         var kst = new Date(utc + (3600000 * 9));
         
         var target = new Date(kst);
-        target.setHours(15, 0, 0, 0);
+        target.setHours(15, 17, 0, 0);
         
-        if (kst.getHours() >= 15) {
+        if (kst.getHours() > 15 || (kst.getHours() == 15 && kst.getMinutes() >= 17)) {
             target.setDate(target.getDate() + 1);
         }
         
@@ -71,7 +71,7 @@ if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_c
             res = requests.post(url, headers=headers, json={"ref": "main"})
         
         if res.status_code == 204: 
-            st.sidebar.success("🚀 가동 명령 송신 완료! 곧 텔레그램으로 전송됩니다.")
+            st.sidebar.success("🚀 가동 명령 송신 완료! 잠시 후 파이프라인이 작동합니다.")
         else: 
             st.sidebar.error(f"가동 실패 코드를 확인해주세요. ({res.status_code})")
 st.sidebar.markdown("---")
@@ -215,7 +215,7 @@ elif menu == "📡 타깃 매체 제어":
         st.error(f"매체 시트 오류가 발생했습니다. {e}")
 
 elif menu == "🤖 AI 및 시스템 설정":
-    st.title("🤖 AI 엔진 및 페르소나 설정")
+    st.title("🤖 시스템 및 텔레그램 설정")
     st.markdown("---")
     
     st.subheader("⚙️ 구동할 AI 엔진 선택")
@@ -225,19 +225,52 @@ elif menu == "🤖 AI 및 시스템 설정":
             sys_sheet = spreadsheet.add_worksheet(title="Config_System", rows="10", cols="2")
             sys_sheet.append_row(["Key", "Value"])
             sys_sheet.append_row(["AI_ENGINE", "AI 사용 안 함"])
+            sys_sheet.append_row(["TELEGRAM_GROUP_SEND", "OFF"])
+            sys_sheet.append_row(["TELEGRAM_PERSONAL_ID", ""])
             
         sys_data = sys_sheet.get_all_records()
         current_engine = "AI 사용 안 함"
+        current_tg_group = "OFF"
+        current_tg_personal = ""
+        
         for row in sys_data:
-            if row.get("Key") == "AI_ENGINE": current_engine = row.get("Value")
+            if row.get("Key") == "AI_ENGINE": current_engine = str(row.get("Value"))
+            if row.get("Key") == "TELEGRAM_GROUP_SEND": current_tg_group = str(row.get("Value"))
+            if row.get("Key") == "TELEGRAM_PERSONAL_ID": current_tg_personal = str(row.get("Value"))
             
         engine_options = ["AI 사용 안 함", "무료 Gemini", "무료 Groq", "전체"]
         selected_engine = st.selectbox("파이프라인에서 사용할 인공지능을 선택하세요.", engine_options, index=engine_options.index(current_engine) if current_engine in engine_options else 0)
         
-        if st.button("💾 엔진 설정 저장", type="primary"):
-            cell = sys_sheet.find("AI_ENGINE")
-            sys_sheet.update_cell(cell.row, cell.col + 1, selected_engine)
-            st.success(f"[{selected_engine}] 모드로 전환되었습니다.")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📱 텔레그램 발송 제어")
+        st.write("단톡방 전송 여부와 개인 봇 아이디를 설정합니다.")
+        
+        col_tg1, col_tg2 = st.columns(2)
+        with col_tg1:
+            tg_group_toggle = st.toggle("📢 단톡방 전송 켜기 (ON/OFF)", value=(current_tg_group == "ON"))
+        with col_tg2:
+            tg_personal_input = st.text_input("👤 개인 텔레그램 Chat ID", value=current_tg_personal, placeholder="예: 123456789")
+        
+        if st.button("💾 시스템 설정 모두 저장", type="primary"):
+            # 엔진 저장
+            try:
+                cell_engine = sys_sheet.find("AI_ENGINE")
+                sys_sheet.update_cell(cell_engine.row, cell_engine.col + 1, selected_engine)
+            except: sys_sheet.append_row(["AI_ENGINE", selected_engine])
+            
+            # 단톡방 토글 저장
+            try:
+                cell_group = sys_sheet.find("TELEGRAM_GROUP_SEND")
+                sys_sheet.update_cell(cell_group.row, cell_group.col + 1, "ON" if tg_group_toggle else "OFF")
+            except: sys_sheet.append_row(["TELEGRAM_GROUP_SEND", "ON" if tg_group_toggle else "OFF"])
+            
+            # 개인 아이디 저장
+            try:
+                cell_personal = sys_sheet.find("TELEGRAM_PERSONAL_ID")
+                sys_sheet.update_cell(cell_personal.row, cell_personal.col + 1, tg_personal_input)
+            except: sys_sheet.append_row(["TELEGRAM_PERSONAL_ID", tg_personal_input])
+                
+            st.success("시스템 및 텔레그램 설정이 성공적으로 저장되었습니다!")
     except Exception as e: st.error(f"시스템 설정 오류가 발생했습니다. {e}")
 
     st.markdown("---")

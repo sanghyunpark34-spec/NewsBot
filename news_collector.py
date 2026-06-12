@@ -30,7 +30,7 @@ def get_naver_news_bulk(query):
             last_pub_date = datetime.strptime(items[-1]['pubDate'], "%a, %d %b %Y %H:%M:%S %z")
             if last_pub_date < datetime.now(KST) - timedelta(days=1): break
         except Exception as e:
-            print(f"API 호출 중 오류 발생: {e}")
+            print(f"API 호출 중 오류 발생하여 수집을 중단합니다. {e}")
             break
         time.sleep(0.3) 
     return all_items
@@ -52,9 +52,6 @@ def collect_news():
     keywords = [r['Keyword'] for r in keyword_records if str(r.get('Keyword', '')).strip()]
     media_list = [r['Domain'] for r in spreadsheet.worksheet("Config_Media").get_all_records() if str(r.get('Domain', '')).strip()]
     
-    # 🚨 상시 제외(입구컷) 키워드 5개 고정
-    ABSOLUTE_NEGATIVES = ["바이오", "부동산", "뷰티", "스포츠", "이글스"]
-    
     print(f"기사 수집을 시작합니다. 타깃 키워드는 총 {len(keywords)}개입니다.")
     rows_to_add = []
 
@@ -64,12 +61,7 @@ def collect_news():
         
         for item in items:
             title = item['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
-            description = item.get('description', '').replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
             
-            # 파이썬 단계에서 5개 상시 제외 단어가 포함되어 있으면 즉시 버림(Continue)
-            if any(neg in title or neg in description for neg in ABSOLUTE_NEGATIVES):
-                continue
-                
             org_link = item.get('originallink', '').strip()
             link = item['link'].strip()
             actual_link = org_link if org_link else link
@@ -87,9 +79,9 @@ def collect_news():
 
     if rows_to_add:
         inbox_sheet.append_rows(rows_to_add)
-        print(f"총 {len(rows_to_add)}개의 기사를 DB_Inbox에 추가했습니다. (상시 제외어 필터링 완료)")
+        print(f"총 {len(rows_to_add)}개의 기사를 DB_Inbox에 안전하게 추가했습니다.")
     else:
-        print("새롭게 수집된 기사가 없습니다.")
+        print("조건에 부합하는 새로운 기사가 없습니다.")
 
 if __name__ == "__main__":
     collect_news()

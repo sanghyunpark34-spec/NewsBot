@@ -1,4 +1,4 @@
-import os, json, gspread, requests, time
+import os, json, gspread, requests
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 import pytz
@@ -35,30 +35,34 @@ def report_top_news():
         except: continue 
 
     top_15 = sorted(unique_news.values(), key=lambda x: x['Total_Score_Num'], reverse=True)[:15]
+    if not top_15: return
+
+    # 하나의 통합 메시지로 구성합니다.
+    msg_parts = ["📰 오늘의 주요 금융 뉴스\n"]
+    for i, news in enumerate(top_15, 1):
+        msg_parts.append(f"{i}. {news['Title']}\n{news['Link']}")
+    
+    final_msg = "\n\n".join(msg_parts)
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     is_scheduled = (TRIGGER_EVENT == "schedule")
 
-    for i, news in enumerate(top_15, 1):
-        msg = f"[{i}위] {news['Title']}\n점수: {news['Total_Score_Num']}점\n링크: {news['Link']}"
-        sent_success = False
-        
-        try:
-            res = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": msg})
-            if res.status_code == 200: sent_success = True
+    sent_success = False
+    try:
+        res = requests.post(url, data={"chat_id": TELEGRAM_CHAT_ID, "text": final_msg})
+        if res.status_code == 200: sent_success = True
+    except: pass
+    
+    if GROUP_CHAT_ID and GROUP_CHAT_ID.strip() != "" and is_scheduled:
+        try: requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": final_msg})
         except: pass
         
-        if GROUP_CHAT_ID and GROUP_CHAT_ID.strip() != "" and is_scheduled:
-            try: requests.post(url, data={"chat_id": GROUP_CHAT_ID, "text": msg})
-            except: pass
-            
-        if sent_success:
+    if sent_success:
+        for news in top_15:
             for idx, row_val in enumerate(raw_values, 1):
                 if idx == 1: continue
                 if str(row_val[1]).strip() == str(news['Title']).strip() and str(row_val[2]).strip() == str(news['Link']).strip():
                     archive_sheet.update_cell(idx, 8, 'Y')
                     break
-                    
-        time.sleep(1.5)
 
 if __name__ == "__main__":
     report_top_news()

@@ -25,7 +25,6 @@ except Exception as e:
 
 st.sidebar.title("통합 제어판 ⚙️")
 
-# --- 실시간 카운트다운 타이머 (자바스크립트 기반) ---
 timer_html = """
 <div style="background-color: #E8F1FF; padding: 12px; border-radius: 8px; text-align: center; margin-bottom: 10px;">
     <div style="font-size: 13px; color: #4F8BF9; font-weight: bold; margin-bottom: 4px;">⏱️ 다음 자동 기사 서치(오후 3시)까지</div>
@@ -108,7 +107,7 @@ elif menu == "🔑 포함/제외 단어 제어":
     
     with col1:
         st.subheader("📌 타깃 키워드 점수 설정 (Max 10)")
-        st.write("우측의 ➕, ➖ 버튼을 눌러 점수를 직관적으로 조절하세요.")
+        st.write("우측의 숫자를 조절하여 키워드 점수를 조절하세요.")
         try:
             kw_sheet = spreadsheet.worksheet("Config_Keywords")
             kw_data = kw_sheet.get_all_records()
@@ -141,26 +140,34 @@ elif menu == "🔑 포함/제외 단어 제어":
             st.error(f"키워드 시트 오류: {e}")
 
     with col2:
-        st.subheader("🚫 상시 제외 단어 관리")
-        st.write("아래 표에 입력된 단어는 수집 단계에서 즉시 버려집니다.")
+        st.subheader("🚫 제외 단어 감점 설정")
+        st.write("표에 단어와 차감할 점수(양수)를 입력하세요. 기사당 최대 2개 단어까지 감점이 합산 적용됩니다.")
         try:
             try: neg_sheet = spreadsheet.worksheet("Config_Negative")
             except: 
                 neg_sheet = spreadsheet.add_worksheet(title="Config_Negative", rows="100", cols="2")
-                neg_sheet.append_row(["Keyword", "Memo"])
-            edited_df_neg = st.data_editor(pd.DataFrame(neg_sheet.get_all_records()), num_rows="dynamic", use_container_width=True)
+                neg_sheet.append_row(["Keyword", "Coefficient"])
+            
+            neg_data = neg_sheet.get_all_records()
+            df_neg = pd.DataFrame(neg_data)
+            if 'Coefficient' not in df_neg.columns:
+                df_neg['Coefficient'] = 20.0
+                
+            edited_df_neg = st.data_editor(df_neg[['Keyword', 'Coefficient']], num_rows="dynamic", use_container_width=True)
+            
             if st.button("💾 제외 단어 표 저장", type="primary"):
                 with st.spinner('저장 중...'):
                     neg_sheet.clear()
-                    neg_sheet.update([edited_df_neg.columns.values.tolist()] + edited_df_neg.values.tolist())
-                st.success("제외 단어가 저장되었습니다!")
-        except Exception: st.error("제외 키워드 시트 오류.")
+                    neg_sheet.update([["Keyword", "Coefficient"]] + edited_df_neg.values.tolist())
+                st.success("제외 단어 설정이 성공적으로 저장되었습니다!")
+        except Exception as e: 
+            st.error(f"제외 키워드 시트 오류: {e}")
 
 elif menu == "📡 타깃 매체 제어":
     st.title("📡 타깃 매체 가중치 제어")
     st.markdown("---")
     st.subheader("뉴스 출처(언론사) 점수 설정 (Max 5)")
-    st.write("우측의 ➕, ➖ 버튼을 눌러 점수를 직관적으로 조절하세요.")
+    st.write("우측의 숫자를 조절하여 점수를 조절하세요.")
     
     try:
         media_sheet = spreadsheet.worksheet("Config_Media")

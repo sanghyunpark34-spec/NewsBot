@@ -2,9 +2,9 @@ name: News Automation Pipeline
 
 on:
   schedule:
-    # 한국 시간(KST) 매일 오후 3시 정각에 구동 (UTC 기준 06:00 AM)
-    - cron: '0 6 * * *'
-  workflow_dispatch: # 수동 실행 버튼
+    # 한국 시간(KST) 매일 오후 3시 17분에 구동 (글로벌 서버 병목 회피용)
+    - cron: '17 6 * * *'
+  workflow_dispatch:
 
 jobs:
   automation-orchestrator:

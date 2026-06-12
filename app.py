@@ -89,7 +89,6 @@ elif menu == "🔑 키워드 & 매체 제어":
         except Exception as e:
             st.error(f"매체 시트를 불러오지 못했습니다: {e}")
 
-# [새로 추가된 기능 1] AI 페르소나 및 루브릭 제어
 elif menu == "🤖 AI 페르소나 설정":
     st.title("🤖 AI 페르소나 및 평가 기준 설정")
     st.markdown("---")
@@ -99,25 +98,48 @@ elif menu == "🤖 AI 페르소나 설정":
         rubric_sheet = spreadsheet.worksheet("Config_Rubric")
         rubric_data = rubric_sheet.get_all_records()
         df_rubric = pd.DataFrame(rubric_data)
-        
-        # 텍스트가 긴 페르소나와 상세 설명을 위해 화면을 넓게 씁니다.
         edited_df_rubric = st.data_editor(df_rubric, num_rows="dynamic", use_container_width=True, key="rubric_editor")
         
         if st.button("💾 페르소나 및 기준 저장", type="primary"):
             with st.spinner('구글 시트에 저장 중...'):
                 rubric_sheet.clear()
-                # 빈 데이터프레임 저장 방지 및 헤더 포함 저장
                 rubric_sheet.update([edited_df_rubric.columns.values.tolist()] + edited_df_rubric.values.tolist())
             st.success("AI 설정이 성공적으로 저장되었습니다!")
     except Exception as e:
         st.error(f"Config_Rubric 시트를 불러오지 못했습니다: {e}")
 
-# [새로 추가된 기능 2] 깃허브 액션 원격 실행 뼈대
 elif menu == "🚀 파이프라인 제어":
     st.title("🚀 수동 파이프라인 가동")
     st.markdown("---")
     st.write("깃허브(GitHub)에 접속하지 않고도, 아래 버튼을 눌러 뉴스 수집 및 분석을 즉시 시작할 수 있습니다.")
-    st.warning("⚠️ 이 기능을 활성화하려면 스트림릿 환경변수(Secrets)에 `GITHUB_TOKEN`을 추가해야 합니다.")
     
-    if st.button("▶️ 지금 뉴스 파이프라인 시작", type="primary"):
-        st.info("깃허브 토큰이 연결되면, 이 버튼을 누를 때 깃허브의 'Run workflow'가 원격으로 작동합니다!")
+    # 깃허브 제어를 위한 정보 기입창 생성
+    st.subheader("🔗 연동 정보 확인")
+    github_repo = st.text_input("깃허브 저장소 주소 (형식: 계정명/저장소명)", placeholder="예: MyName/NewsBot")
+    workflow_file = st.text_input("워크플로우 파일명", value="news_pipeline.yml")
+    
+    if st.button("▶️ 지금 뉴스 파이프라인 가동 시작", type="primary"):
+        if not github_repo:
+            st.warning("깃허브 저장소 주소를 입력해주세요.")
+        elif "GITHUB_TOKEN" not in st.secrets:
+            st.error("스트림릿 Secrets 금고에 GITHUB_TOKEN이 등록되어 있지 않습니다.")
+        else:
+            # 깃허브 API를 사용해 원격으로 Workflow 실행 명령 전송
+            token = st.secrets["GITHUB_TOKEN"]
+            url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/dispatches"
+            headers = {
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+            # 트리거할 타깃 브랜치 지정
+            data = {"ref": "main"} 
+            
+            with st.spinner('깃허브에 원격 기동 명령 송신 중...'):
+                response = requests.post(url, headers=headers, json=data)
+                
+            if response.status_code == 204:
+                st.author = True
+                st.success(f"🚀 성공! 깃허브 서버에서 뉴스 파이프라인 연산이 즉시 시작되었습니다. 잠시 후 텔레그램을 확인하세요!")
+            else:
+                st.error(f"가동 실패 (에러 코드: {response.status_code})")
+                st.text(response.text)

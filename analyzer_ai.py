@@ -16,45 +16,30 @@ spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 groq_client = Groq(api_key=os.environ["GROQ_API_KEY"], timeout=15.0)
 
-def get_persona_and_rubric():
-    default_persona = "당신은 금융지주회사의 대체투자 및 기업 전략 기획을 담당하는 최고 전문가입니다. 100점 만점으로 변환하여 숫자만 대답하세요."
-    rubric_text = "다음은 기사 채점 기준입니다.\n\n"
-    
+def get_engine_setting():
     try:
-        rubric_sheet = spreadsheet.worksheet("Config_Rubric")
-        records = rubric_sheet.get_all_records()
-        
+        sys_sheet = spreadsheet.worksheet("Config_System")
+        for row in sys_sheet.get_all_records():
+            if row.get("Key") == "AI_ENGINE":
+                return row.get("Value")
+    except: pass
+    return "AI 사용 안 함"
+
+def get_persona_and_rubric():
+    default_persona = "당신은 금융 전문가입니다."
+    rubric_text = "채점 기준:\n"
+    try:
+        records = spreadsheet.worksheet("Config_Rubric").get_all_records()
         for row in records:
             if str(row.get('Type', '')).strip().lower() == 'base':
                 default_persona = str(row.get('Persona', default_persona)).strip()
-            
             criteria = row.get('평가 기준', row.get('Criteria', ''))
             desc = row.get('상세 설명', row.get('Description', ''))
             score = row.get('배점', row.get('Score', 0))
             if criteria and criteria.lower() != 'type':
                 rubric_text += f"- {criteria} (최대 {score}점): {desc}\n"
-    except Exception as e:
-        print(f"설정 불러오기 실패로 기본값 대체 진행 {e}", flush=True)
-        
+    except: pass
     return default_persona, rubric_text
-
-def evaluate_with_gemini(prompt):
-    try:
-        response = gemini_client.models.generate_content(model='gemini-3.5-flash', contents=prompt)
-        score_text = ''.join(filter(str.isdigit, response.text))
-        return min(int(score_text), 100) if score_text else None
-    except: return None
-
-def evaluate_with_groq(prompt):
-    try:
-        response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=10, temperature=0.1
-        )
-        score_text = ''.join(filter(str.isdigit, response.choices[0].message.content))
-        return min(int(score_text), 100) if score_text else None
-    except: return None
 
 def process_ai_score():
     stage_sheet = spreadsheet.worksheet("DB_Stage")
@@ -66,6 +51,7 @@ def process_ai_score():
     rows = stage_sheet.get_all_values()
     if len(rows) <= 1: return
 
+    engine = get_engine_setting()
     system_persona, rubric_prompt = get_persona_and_rubric()
     archive_rows = []
     
@@ -75,48 +61,44 @@ def process_ai_score():
         try: base_score = float(row[4])
         except: base_score = 0.0
             
-        if i < 20 and base_score > 0: 
-            print(f"\n[{i+1}/20] 분석 시작: {title[:18]}...", flush=True)
-            evaluation_prompt = f"{system_persona}\n\n{rubric_prompt}\n\n기사 제목: {title}"
+        ai_score = 0
+        if i < 20 and base_score > 0 and engine != "AI 사용 안 함":
+            print(f"\n분석 시작 [{engine}]: {title[:18]}...", flush=True)
+            prompt = f"{system_persona}\n\n{rubric_prompt}\n\n기사 제목: {title}"
             
-            gemini_score = evaluate_with_gemini(evaluation_prompt)
-            groq_score = evaluate_with_groq(evaluation_prompt)
+            scores = []
+            if engine == "무료 Gemini" or engine == "전체":
+                try:
+                    res = gemini_client.models.generate_content(model='gemini-3.5-flash', contents=prompt)
+                    score_text = ''.join(filter(str.isdigit, res.text))
+                    scores.append(min(int(score_text), 100))
+                except: pass
             
-            gemini_log = f"제미나이 {gemini_score}점" if gemini_score is not None else "제미나이 호출 실패"
-            groq_log = f"그록 {groq_score}점" if groq_score is not None else "그록 호출 실패"
+            if engine == "무료 Groq" or engine == "전체":
+                try:
+                    res = groq_client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "user", "content": prompt}], max_tokens=10)
+                    score_text = ''.join(filter(str.isdigit, res.choices[0].message.content))
+                    scores.append(min(int(score_text), 100))
+                except: pass
+                
+            if scores: ai_score = sum(scores) / len(scores)
+            time.sleep(5) 
             
-            scores = [s for s in [gemini_score, groq_score] if s is not None]
-            if scores:
-                ai_score = sum(scores) / len(scores)
-                print(f"  -> {groq_log}, {gemini_log}, AI 스코어 {ai_score}점", flush=True)
-            else:
-                ai_score = 0
-                print(f"  -> {groq_log}, {gemini_log}, AI 스코어 없음", flush=True)
-            time.sleep(15) 
-        else: 
-            ai_score = 0
-            
-        if ai_score > 0:
-            total_score = round((base_score * 0.45) + (ai_score * 0.55), 2)
-        else:
+        if engine == "AI 사용 안 함":
             total_score = round(base_score, 2)
+        else:
+            total_score = round((base_score * 0.45) + (ai_score * 0.55), 2) if ai_score > 0 else round(base_score, 2)
             
         archive_rows.append([date, title, url, matched_media, base_score, ai_score, total_score, 'N'])
 
     if archive_rows:
         archive_sheet.append_rows(archive_rows)
-        
         try: top20_sheet = spreadsheet.worksheet("DB_Top20")
-        except:
-            top20_sheet = spreadsheet.add_worksheet(title="DB_Top20", rows="5000", cols="9")
-            top20_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Base_Score", "AI_Score", "Total_Score", "Sent"])
-            
+        except: top20_sheet = spreadsheet.add_worksheet(title="DB_Top20", rows="5000", cols="9")
         exec_time = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-        top20_rows = [[exec_time] + r for r in archive_rows]
-        top20_sheet.append_rows(top20_rows)
+        top20_sheet.append_rows([[exec_time] + r for r in archive_rows])
 
     stage_sheet.resize(rows=1)
-    print("\n🎉 AI 연산 및 히스토리 영구 백업 적재 완료.", flush=True)
 
 if __name__ == "__main__":
     process_ai_score()

@@ -7,9 +7,6 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 )
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
-# 단어당 차감할 점수를 정의합니다. (최대 2개 적용)
-PENALTY_PER_KEYWORD = 20.0 
-
 def process_base_score():
     inbox_sheet = spreadsheet.worksheet("DB_Inbox")
     stage_sheet = spreadsheet.worksheet("DB_Stage")
@@ -18,12 +15,19 @@ def process_base_score():
     try: media_sheet = spreadsheet.worksheet("Config_Media")
     except: media_sheet = spreadsheet.worksheet("Config_Media_Sites")
         
-    # 수집기에서 5개 단어를 원천 차단하므로, 여기서는 오직 대시보드(시트)에 등록된 단어만 불러와 감점용으로 씁니다.
+    # 대시보드 구조 변경에 맞춰 Keyword와 Coefficient를 매핑하는 딕셔너리를 빌드합니다.
     try:
         neg_sheet = spreadsheet.worksheet("Config_Negative")
-        penalty_keywords = [str(r.get('Keyword', '')).strip() for r in neg_sheet.get_all_records() if str(r.get('Keyword', '')).strip()]
+        neg_records = neg_sheet.get_all_records()
+        penalty_dict = {}
+        for r in neg_records:
+            kw = str(r.get('Keyword', '')).strip()
+            if not kw: continue
+            try: val = float(r.get('Coefficient', r.get('Weight', 20.0)))
+            except: val = 20.0
+            penalty_dict[kw] = val
     except:
-        penalty_keywords = []
+        penalty_dict = {}
         
     rows = inbox_sheet.get_all_values()
     if len(rows) <= 1: return
@@ -81,18 +85,20 @@ def process_base_score():
         else:
             base_score = 0.0 
             
-        # 대시보드 등록 단어로 차감 연산 진행 (최대 2개 단어로 제한)
+        # 기사 제목에 들어있는 제외 키워드와 개별 감점 수치를 매칭합니다.
         found_penalties = []
-        for pk in penalty_keywords:
+        for pk, penalty_val in penalty_dict.items():
             if pk in title:
-                found_penalties.append(pk)
+                found_penalties.append((pk, penalty_val))
                 
+        # 감점 수치가 큰 단어 순서대로 정렬하여 상위 최대 2개만 선별합니다.
+        found_penalties.sort(key=lambda x: x[1], reverse=True)
         applied_penalties = found_penalties[:2]
-        total_penalty = len(applied_penalties) * PENALTY_PER_KEYWORD
+        total_penalty = sum([item[1] for item in applied_penalties])
         
         if total_penalty > 0:
             base_score = max(0.0, round(base_score - total_penalty, 2))
-            neg_text = ", ".join(applied_penalties)
+            neg_text = ", ".join([f"{item[0]}({int(item[1])})" for item in applied_penalties])
             kw_text = ", ".join([item[1] for item in matched_kw_details]) if matched_kw_details else "-"
             matched_keywords_str = f"{kw_text} [🔻 감점: {neg_text}]"
         else:
@@ -105,7 +111,7 @@ def process_base_score():
         stage_sheet.append_rows(stage_rows)
         
     inbox_sheet.resize(rows=1)
-    print("기초 점수 산정 및 대시보드 설정 감점 연산 완료.")
+    print("개별 계수 기반 기초 점수 산정 및 감점 수식 연산 완료.")
 
 if __name__ == "__main__":
     process_base_score()

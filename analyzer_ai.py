@@ -92,11 +92,21 @@ def process_ai_score():
         archive_rows.append([date, title, url, matched_media, base_score, ai_score, total_score, 'N'])
 
     if archive_rows:
+        # 1. DB_Archive에는 연산된 모든 데이터를 기록
         archive_sheet.append_rows(archive_rows)
-        try: top20_sheet = spreadsheet.worksheet("DB_Top20")
-        except: top20_sheet = spreadsheet.add_worksheet(title="DB_Top20", rows="5000", cols="9")
+        
+        # 2. DB_Top20에는 Total_Score(인덱스 6) 기준으로 내림차순 정렬 후 상위 20개만 적재
+        try: 
+            top20_sheet = spreadsheet.worksheet("DB_Top20")
+        except: 
+            top20_sheet = spreadsheet.add_worksheet(title="DB_Top20", rows="5000", cols="9")
+            top20_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Base_Score", "AI_Score", "Total_Score", "Sent"])
+        
+        sorted_for_top20 = sorted(archive_rows, key=lambda x: float(x[6]), reverse=True)[:20]
         exec_time = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-        top20_sheet.append_rows([[exec_time] + r for r in archive_rows])
+        top20_rows = [[exec_time] + r for r in sorted_for_top20]
+        
+        top20_sheet.append_rows(top20_rows)
 
     stage_sheet.resize(rows=1)
 

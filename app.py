@@ -7,8 +7,10 @@ import requests
 import time
 import streamlit.components.v1 as components
 
+# 1. 페이지 기본 설정
 st.set_page_config(page_title="뉴스 자동화 대시보드", page_icon="📰", layout="wide")
 
+# 2. 데이터베이스 연결
 @st.cache_resource
 def init_connection():
     creds_dict = json.loads(st.secrets["GOOGLE_SHEETS_CREDENTIALS"])
@@ -21,9 +23,10 @@ def init_connection():
 try:
     spreadsheet = init_connection()
 except Exception as e:
-    st.error(f"구글 시트 연결에 실패했습니다. 발생한 오류는 {e} 입니다.")
+    st.error(f"구글 시트 연결에 실패했습니다. 발생한 오류: {e}")
     st.stop()
 
+# 3. 사이드바 및 타이머 UI
 st.sidebar.title("통합 제어판 ⚙️")
 
 timer_html = """
@@ -52,27 +55,28 @@ timer_html = """
 </script>
 """
 with st.sidebar:
-    components.html(timer_html, height=115)
+    components.html(timer_html, height=90)
 
+# 4. 퀵 기사 서치 실행 버튼 (실시간 상태 연동)
 st.sidebar.subheader("🚀 퀵 기사 서치 실행")
 if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_container_width=True):
     github_repo = "sanghyunpark34-spec/NewsBot"
     workflow_file = "news_pipeline.yml"
     
     if "GITHUB_TOKEN" not in st.secrets:
-        st.sidebar.error("스트림릿 비밀 금고에 깃허브 토큰이 없습니다.")
+        st.sidebar.error("스트림릿 Secrets 금고에 깃허브 토큰이 없습니다.")
     else:
         url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/dispatches"
         runs_url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/runs"
         headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}", "Accept": "application/vnd.github.v3+json"}
         
-        with st.status("🚀 깃허브 서버 가동 준비 중입니다.", expanded=True) as status:
-            st.write("명령을 전송하는 중입니다.")
+        with st.status("🚀 깃허브 서버 가동 준비 중...", expanded=True) as status:
+            st.write("명령을 전송하는 중입니다...")
             res = requests.post(url, headers=headers, json={"ref": "main"})
             
             if res.status_code == 204: 
-                status.update(label="🔄 현재 프로그램이 작동 중입니다.", state="running")
-                st.write("깃허브 연결에 성공하여 분석이 완료될 때까지 대기합니다.")
+                status.update(label="🔄 현재 프로그램이 작동 중입니다...", state="running")
+                st.write("✅ 깃허브 연결 성공! AI 평가가 완료될 때까지 대기합니다 (최대 6분).")
                 time.sleep(5)
                 finished = False
                 for _ in range(72):
@@ -86,19 +90,21 @@ if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_c
                     time.sleep(5)
                     
                 if finished:
-                    status.update(label="✅ 작동이 완전히 종료되었습니다. 텔레그램을 확인해주세요.", state="complete", expanded=False)
+                    status.update(label="✅ 작동이 완전히 종료되었습니다! 텔레그램을 확인해주세요.", state="complete", expanded=False)
                 else:
                     status.update(label="⏳ 분석량이 많아 지연되고 있습니다. 곧 전송됩니다.", state="complete", expanded=False)
             else: 
-                status.update(label=f"❌ 가동에 실패했습니다. 에러 코드는 {res.status_code} 입니다.", state="error")
+                status.update(label=f"❌ 가동 실패 (에러 코드: {res.status_code})", state="error")
 
 st.sidebar.markdown("---")
 
+# 5. 메인 화면 메뉴 라우팅
 menu = st.sidebar.radio(
     "세부 메뉴를 선택하세요",
     ["📊 종합 상황판", "🔑 포함/제외 단어 제어", "📡 타깃 매체 제어", "🤖 시스템 및 알림 설정", "📜 AI 페르소나 및 평가 기준"]
 )
 
+# [메뉴 1] 종합 상황판
 if menu == "📊 종합 상황판":
     st.title("📊 기사 서치 종합 상황판")
     st.markdown("---")
@@ -108,24 +114,22 @@ if menu == "📊 종합 상황판":
         data = top20_sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
-            if not df.empty:
-                latest_time = df['Execution_Time'].max()
-                df_latest = df[df['Execution_Time'] == latest_time].drop(columns=['Execution_Time', 'Sent'], errors='ignore')
-                st.dataframe(df_latest, use_container_width=True, hide_index=True, height=750)
-            else:
-                st.info("데이터프레임이 비어 있습니다.")
+            latest_time = df['Execution_Time'].max()
+            df_latest = df[df['Execution_Time'] == latest_time].drop(columns=['Execution_Time', 'Sent'], errors='ignore')
+            st.dataframe(df_latest, use_container_width=True, hide_index=True, height=750)
         else:
             st.info("아직 누적된 데이터가 없습니다.")
     except Exception:
         st.warning("DB_Top20 시트를 찾을 수 없습니다.")
 
+# [메뉴 2] 키워드 제어
 elif menu == "🔑 포함/제외 단어 제어":
     st.title("🔑 키워드 점수 조절 및 제외 설정")
     st.markdown("---")
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("📌 타깃 키워드 점수 설정")
+        st.subheader("📌 타깃 키워드 점수 설정 (Max 10)")
         try:
             kw_sheet = spreadsheet.worksheet("Config_Keywords")
             kw_data = kw_sheet.get_all_records()
@@ -137,18 +141,18 @@ elif menu == "🔑 포함/제외 단어 제어":
                 with c1: st.markdown(f"<div style='padding-top: 8px; font-weight: 600; font-size: 16px; color: #1E3A8A;'>{kw}</div>", unsafe_allow_html=True)
                 with c2:
                     current_w = float(row.get('Weight', row.get('Coefficient', 1.0)))
-                    new_w = st.number_input("점수 입력", min_value=0.0, max_value=10.0, value=current_w, step=1.0, key=f"kw_{idx}", label_visibility="collapsed")
+                    new_w = st.number_input("점수", min_value=0.0, max_value=10.0, value=current_w, step=1.0, key=f"kw_{idx}", label_visibility="collapsed")
                 updated_kws.append([kw, new_w])
             st.markdown("---")
             with st.expander("➕ 새로운 타깃 키워드 추가하기"):
                 new_kw = st.text_input("새로 추가할 키워드 입력")
-                new_w = st.number_input("새 키워드 점수 입력", min_value=0.0, max_value=10.0, value=1.0, step=1.0)
+                new_w = st.number_input("새 키워드 점수", min_value=0.0, max_value=10.0, value=1.0, step=1.0)
             if st.button("💾 타깃 키워드 모두 저장", type="primary", use_container_width=True):
                 if new_kw.strip(): updated_kws.append([new_kw.strip(), new_w])
                 kw_sheet.clear()
                 kw_sheet.update([["Keyword", "Weight"]] + updated_kws)
                 st.success("타깃 키워드가 성공적으로 저장되었습니다.")
-        except Exception as e: st.error(f"키워드 시트 오류가 발생했습니다. 오류 내용은 {e} 입니다.")
+        except Exception as e: st.error(f"키워드 시트 오류: {e}")
 
     with col2:
         st.subheader("🚫 제외 단어 감점 설정")
@@ -166,19 +170,20 @@ elif menu == "🔑 포함/제외 단어 제어":
                 with c1: st.markdown(f"<div style='padding-top: 8px; font-weight: 600; font-size: 16px; color: #991B1B;'>{kw}</div>", unsafe_allow_html=True)
                 with c2:
                     current_w = float(row.get('Coefficient', 20.0))
-                    new_w = st.number_input("감점 입력", min_value=0.0, max_value=100.0, value=current_w, step=1.0, key=f"neg_{idx}", label_visibility="collapsed")
+                    new_w = st.number_input("감점", min_value=0.0, max_value=100.0, value=current_w, step=1.0, key=f"neg_{idx}", label_visibility="collapsed")
                 updated_negs.append([kw, new_w])
             st.markdown("---")
             with st.expander("➕ 새로운 제외 단어 추가하기"):
                 new_neg = st.text_input("새로 추가할 제외 단어 입력")
-                new_nw = st.number_input("새 단어 감점 폭 입력", min_value=0.0, max_value=100.0, value=20.0, step=1.0)
+                new_nw = st.number_input("새 단어 감점 폭", min_value=0.0, max_value=100.0, value=20.0, step=1.0)
             if st.button("💾 제외 단어 모두 저장", type="primary", use_container_width=True):
                 if new_neg.strip(): updated_negs.append([new_neg.strip(), new_nw])
                 neg_sheet.clear()
                 neg_sheet.update([["Keyword", "Coefficient"]] + updated_negs)
                 st.success("제외 단어 설정이 성공적으로 저장되었습니다.")
-        except Exception as e: st.error(f"제외 키워드 시트 오류가 발생했습니다. 오류 내용은 {e} 입니다.")
+        except Exception as e: st.error(f"제외 키워드 시트 오류: {e}")
 
+# [메뉴 3] 매체 제어
 elif menu == "📡 타깃 매체 제어":
     st.title("📡 타깃 매체 가중치 제어")
     st.markdown("---")
@@ -193,19 +198,20 @@ elif menu == "📡 타깃 매체 제어":
             with c1: st.markdown(f"<div style='padding-top: 8px; font-weight: 600; font-size: 16px; color: #065F46;'>{domain}</div>", unsafe_allow_html=True)
             with c2:
                 current_w = float(row.get('Weight', row.get('Coefficient', 0.0)))
-                new_w = st.number_input("점수 입력", min_value=0.0, max_value=5.0, value=current_w, step=1.0, key=f"media_{idx}", label_visibility="collapsed")
+                new_w = st.number_input("점수", min_value=0.0, max_value=5.0, value=current_w, step=1.0, key=f"media_{idx}", label_visibility="collapsed")
             updated_media.append([domain, new_w])
         st.markdown("---")
         with st.expander("➕ 새로운 언론사 도메인 추가하기"):
             new_domain = st.text_input("새 언론사 이름 도메인 입력")
-            new_mw = st.number_input("새 언론사 점수 입력", min_value=0.0, max_value=5.0, value=1.0, step=1.0)
+            new_mw = st.number_input("새 언론사 점수", min_value=0.0, max_value=5.0, value=1.0, step=1.0)
         if st.button("💾 언론사 매체 모두 저장", type="primary"):
             if new_domain.strip(): updated_media.append([new_domain.strip(), new_mw])
             media_sheet.clear()
             media_sheet.update([["Domain", "Weight"]] + updated_media)
             st.success("매체 가중치가 성공적으로 저장되었습니다.")
-    except Exception as e: st.error(f"매체 시트 오류가 발생했습니다. 오류 내용은 {e} 입니다.")
+    except Exception as e: st.error(f"매체 시트 오류: {e}")
 
+# [메뉴 4] 시스템 및 알림 설정
 elif menu == "🤖 시스템 및 알림 설정":
     st.title("🤖 시스템 및 텔레그램 설정")
     st.markdown("---")
@@ -223,7 +229,7 @@ elif menu == "🤖 시스템 및 알림 설정":
         with col_sys1:
             st.subheader("⚙️ 구동할 AI 엔진 선택")
             opts = ["AI 사용 안 함", "무료 Gemini", "무료 Groq", "전체"]
-            selected_engine = st.selectbox("엔진 종류 선택", opts, index=opts.index(current_engine) if current_engine in opts else 0, label_visibility="collapsed")
+            selected_engine = st.selectbox("엔진 종류", opts, index=opts.index(current_engine) if current_engine in opts else 0, label_visibility="collapsed")
             
         with col_sys2:
             st.subheader("📱 텔레그램 발송 제어")
@@ -231,7 +237,7 @@ elif menu == "🤖 시스템 및 알림 설정":
             tg_group_toggle = st.toggle("📢 부서 단톡방 전송 허용", value=(config.get("TELEGRAM_GROUP_SEND") == "ON"))
             st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
             tg_author_toggle = st.toggle("👤 작성자 개인 수신 허용", value=(config.get("TELEGRAM_AUTHOR_SEND") == "ON"))
-            extra_ids_input = st.text_input("➕ 추가 수신자 아이디를 쉼표로 구분하여 입력하세요", value=config.get("EXTRA_TELEGRAM_IDS", ""), placeholder="1234567, 7654321 처럼 입력하세요")
+            extra_ids_input = st.text_input("➕ 추가 수신자 ID (쉼표로 구분)", value=config.get("EXTRA_TELEGRAM_IDS", ""), placeholder="예: 1234567, 7654321")
             st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -243,9 +249,10 @@ elif menu == "🤖 시스템 및 알림 설정":
             update_setting("TELEGRAM_GROUP_SEND", "ON" if tg_group_toggle else "OFF")
             update_setting("TELEGRAM_AUTHOR_SEND", "ON" if tg_author_toggle else "OFF")
             update_setting("EXTRA_TELEGRAM_IDS", extra_ids_input)
-            st.success("설정이 데이터베이스에 성공적으로 기록되었습니다.")
-    except Exception as e: st.error(f"설정 저장 중 오류가 발생했습니다. 오류 내용은 {e} 입니다.")
+            st.success("설정이 데이터베이스에 성공적으로 기록되었습니다!")
+    except Exception as e: st.error(f"오류: {e}")
 
+# [메뉴 5] AI 페르소나 및 평가 기준
 elif menu == "📜 AI 페르소나 및 평가 기준":
     st.title("📜 AI 페르소나 및 평가 기준")
     st.markdown("---")
@@ -256,5 +263,5 @@ elif menu == "📜 AI 페르소나 및 평가 기준":
         if st.button("💾 평가 기준 저장", type="primary", use_container_width=True):
             rubric_sheet.clear()
             rubric_sheet.update([edited_df.columns.values.tolist()] + edited_df.values.tolist())
-            st.success("평가 기준 저장을 완료했습니다.")
-    except Exception: st.error("평가 기준 시트를 찾을 수 없습니다.")
+            st.success("저장 완료!")
+    except Exception: st.error("Config_Rubric 시트 오류")

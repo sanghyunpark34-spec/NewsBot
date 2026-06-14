@@ -16,26 +16,37 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
 def get_lookback_days():
-    """
-    현재 요일과 실행 트리거를 분석하여 기사 검색 기간(일수)을 결정합니다.
-    """
     now_kst = datetime.now(KST)
-    is_monday = now_kst.weekday() == 0  # 0: 월요일
-    is_weekend = now_kst.weekday() in [5, 6]  # 5: 토요일, 6: 일요일
-    
-    # 깃허브 액션에서 전달된 실행 환경 변수를 확인합니다.
-    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
-    is_manual = (event_name == "workflow_dispatch")
+    is_monday = now_kst.weekday() == 0
+    is_weekend = now_kst.weekday() in [5, 6]
+    is_manual = (os.environ.get("GITHUB_EVENT_NAME", "") == "workflow_dispatch")
 
-    # 월요일, 주말, 또는 대시보드 수동 실행일 경우 3일(72시간)치 기사를 탐색합니다.
     if is_monday or is_weekend or is_manual:
         return 3
-    # 화~금 일반적인 자동 실행일 경우 1일(24시간)치 기사만 탐색합니다.
     return 1
 
-def get_naver_news_bulk(query, lookback_days):
+def get_latest_archive_time(archive_sheet):
+    """DB_Archive에 기록된 기사 중 가장 최신 기사의 발행 시간을 구합니다."""
+    try:
+        col_dates = archive_sheet.col_values(1)[1:] # 첫 번째 열(Date) 가져오기
+        if not col_dates:
+            return None
+        # 문자열 시간을 datetime 객체로 변환하여 가장 최신 값을 찾습니다.
+        date_objects = [datetime.strptime(d.strip(), "%Y-%m-%d %H:%M:%S") for d in col_dates if d.strip()]
+        if date_objects:
+            return max(date_objects)
+    except Exception as e:
+        print(f"최신 아카이브 시간 조회 중 참고용 오류 발생: {e}")
+    return None
+
+def get_naver_news_bulk(query, lookback_days, latest_db_time):
     all_items = []
+    early_stop_triggered = False
+
     for start in range(1, 1000, 100):
+        if early_stop_triggered: 
+            break
+            
         url = "https://openapi.naver.com/v1/search/news.json"
         params = {"query": query, "display": 100, "start": start, "sort": "date"}
         try:
@@ -44,9 +55,19 @@ def get_naver_news_bulk(query, lookback_days):
             data = response.json()
             items = data.get('items', [])
             if not items: break
-            all_items.extend(items)
             
-            # 마지막 기사의 발행일이 lookback_days 이전이면 크롤링을 중단합니다.
+            for item in items:
+                pub_date = datetime.strptime(item['pubDate'], "%a, %d %b %Y %H:%M:%S %z").replace(tzinfo=None)
+                
+                # 💡 [핵심 최적화 1] 네이버에서 읽어온 기사가 우리 DB의 가장 최신 기사보다 과거 데이터라면 즉시 크롤링 전면 중단
+                if latest_db_time and pub_date <= latest_db_time:
+                    print(f" -> DB 최신 기사 시점({latest_db_time}) 도달로 인해 [{query}] 검색을 조기 종료합니다.")
+                    early_stop_triggered = True
+                    break
+                
+                all_items.append(item)
+            
+            # 마지막 기사의 발행일이 설정한 lookback_days(24시간 또는 72시간) 이전이어도 중단합니다.
             last_pub_date = datetime.strptime(items[-1]['pubDate'], "%a, %d %b %Y %H:%M:%S %z")
             if last_pub_date < datetime.now(KST) - timedelta(days=lookback_days): 
                 break
@@ -64,6 +85,11 @@ def collect_news():
     inbox_links = inbox_sheet.col_values(3)
     existing_links = archive_links + inbox_links 
     
+    # DB에 보관된 가장 최신 기사의 타임스탬프를 획득합니다.
+    latest_db_time = get_latest_archive_time(archive_sheet)
+    if latest_db_time:
+        print(f"현재 데이터베이스의 가장 최신 기사 타임스탬프는 {latest_db_time} 입니다.")
+    
     keyword_records = spreadsheet.worksheet("Config_Keywords").get_all_records()
     for r in keyword_records:
         try: r['Weight'] = float(r.get('Weight', r.get('Coefficient', 1)))
@@ -73,15 +99,15 @@ def collect_news():
     keywords = [r['Keyword'] for r in keyword_records if str(r.get('Keyword', '')).strip()]
     media_list = [r['Domain'] for r in spreadsheet.worksheet("Config_Media").get_all_records() if str(r.get('Domain', '')).strip()]
     
-    # 💡 동적 탐색 기간 계산
     lookback_days = get_lookback_days()
-    print(f"기사 수집을 시작합니다. 타깃 키워드는 총 {len(keywords)}개이며, 최근 {lookback_days}일({lookback_days * 24}시간) 범위의 기사를 탐색합니다.")
+    print(f"기사 수집을 시작합니다. 타깃 키워드는 총 {len(keywords)}개입니다.")
     
     rows_to_add = []
 
     for kw in keywords:
         print(f"[{kw}] 키워드로 뉴스 원본을 수집합니다.")
-        items = get_naver_news_bulk(kw, lookback_days)
+        # 최신 DB 시간을 수집기에 넘겨주어 추적하게 합니다.
+        items = get_naver_news_bulk(kw, lookback_days, latest_db_time)
         
         for item in items:
             title = item['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
@@ -103,9 +129,9 @@ def collect_news():
 
     if rows_to_add:
         inbox_sheet.append_rows(rows_to_add)
-        print(f"총 {len(rows_to_add)}개의 기사를 DB_Inbox에 안전하게 추가했습니다.")
+        print(f"총 {len(rows_to_add)}개의 새로운 기사를 DB_Inbox에 추가했습니다.")
     else:
-        print("조건에 부합하는 새로운 기사가 없습니다.")
+        print("조건에 부합하는 새로운 기사가 전혀 없으므로 리소스를 사용하지 않고 안전하게 종료합니다.")
 
 if __name__ == "__main__":
     collect_news()

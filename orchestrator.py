@@ -1,3 +1,4 @@
+import os
 import subprocess
 from datetime import datetime
 import pytz
@@ -5,6 +6,11 @@ import pytz
 KST = pytz.timezone('Asia/Seoul')
 
 def is_korean_workday():
+    # 💡 [핵심 추가] 대시보드에서 수동(workflow_dispatch)으로 실행한 경우, 요일 상관없이 무조건 통과시킵니다.
+    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+        print("🚀 수동 가동(대시보드 퀵 버튼)이 감지되었습니다. 주말/공휴일 제한을 무시하고 강제 실행합니다.", flush=True)
+        return True
+
     now = datetime.now(KST)
     if now.weekday() >= 5:
         print(f"[{now.strftime('%Y-%m-%d')}] 주말이므로 자동화를 진행하지 않습니다.", flush=True)
@@ -32,7 +38,7 @@ def main():
     if not is_korean_workday():
         return
 
-    print("한국 영업일이 확인되어 뉴스 자동화 파이프라인 제어를 시작합니다.", flush=True)
+    print("뉴스 자동화 파이프라인 제어를 시작합니다.", flush=True)
     print(f"\n파이프라인 실행을 시작합니다. 현재 시간은 {datetime.now(KST).strftime('%Y-%m-%d %H:%M:%S')} 입니다.", flush=True)
 
     # 에러 발생 여부와 상관없이 무조건 끝까지 순차적으로 직진합니다.

@@ -17,15 +17,17 @@ gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 groq_client = Groq(api_key=os.environ["GROQ_API_KEY"], timeout=15.0)
 
 def get_lookback_days():
-    """현재 요일과 실행 방식을 판별하여 24시간 또는 72시간 탐색을 결정합니다."""
+    """현재 요일과 실행 방식을 판별하여 1.5일(36시간) 또는 3.5일(84시간) 탐색을 결정합니다."""
     now_kst = datetime.now(KST)
     is_monday = now_kst.weekday() == 0
     is_weekend = now_kst.weekday() in [5, 6]
     is_manual = (os.environ.get("GITHUB_EVENT_NAME", "") == "workflow_dispatch")
 
+    # 월요일, 주말, 수동 실행 시 3.5일(84시간)
     if is_monday or is_weekend or is_manual:
-        return 3
-    return 1
+        return 3.5
+    # 화~금 일반 워크데이 시 1.5일(36시간)
+    return 1.5
 
 def get_engine_setting():
     try:

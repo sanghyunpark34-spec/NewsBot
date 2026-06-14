@@ -1,11 +1,13 @@
 name: News Automation Pipeline
 
 on:
-  schedule:
-    # 한국 시간(KST) 매주 월~금 오전 7시 48분에 구동
-    # UTC 기준으로는 전날(일~목) 오후 10시 48분입니다.
-    - cron: '48 22 * * 0-4'
   workflow_dispatch:
+    # cron-job.org에서 보내는 비밀 이름표를 받을 수 있도록 창구를 열어둡니다.
+    inputs:
+      is_scheduled:
+        description: 'cron-job.org 스케줄 가동 여부'
+        required: false
+        default: 'false'
 
 jobs:
   automation-orchestrator:
@@ -31,12 +33,14 @@ jobs:
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          
-          # 👇 수동/자동 실행 여부를 구분하여 주말 락(Lock)을 해제하는 핵심 변수입니다.
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-          
-          # 👇 파이썬 코드가 정상적으로 읽을 수 있도록 텔레그램 환경 변수명을 동기화합니다.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
           MY_CHAT_ID: ${{ secrets.MY_CHAT_ID }}
-        run: python orchestrator.py
+        # 👇 외부 신호를 감지해서 파이썬 코드에게 진짜 스케줄러인지 수동인지 명확하게 구분해주는 로직입니다.
+        run: |
+          if [ "${{ github.event.inputs.is_scheduled }}" == "true" ]; then
+            export GITHUB_EVENT_NAME="schedule"
+          else
+            export GITHUB_EVENT_NAME="workflow_dispatch"
+          fi
+          python orchestrator.py

@@ -15,7 +15,25 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 )
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
-def get_naver_news_bulk(query):
+def get_lookback_days():
+    """
+    현재 요일과 실행 트리거를 분석하여 기사 검색 기간(일수)을 결정합니다.
+    """
+    now_kst = datetime.now(KST)
+    is_monday = now_kst.weekday() == 0  # 0: 월요일
+    is_weekend = now_kst.weekday() in [5, 6]  # 5: 토요일, 6: 일요일
+    
+    # 깃허브 액션에서 전달된 실행 환경 변수를 확인합니다.
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+    is_manual = (event_name == "workflow_dispatch")
+
+    # 월요일, 주말, 또는 대시보드 수동 실행일 경우 3일(72시간)치 기사를 탐색합니다.
+    if is_monday or is_weekend or is_manual:
+        return 3
+    # 화~금 일반적인 자동 실행일 경우 1일(24시간)치 기사만 탐색합니다.
+    return 1
+
+def get_naver_news_bulk(query, lookback_days):
     all_items = []
     for start in range(1, 1000, 100):
         url = "https://openapi.naver.com/v1/search/news.json"
@@ -27,8 +45,11 @@ def get_naver_news_bulk(query):
             items = data.get('items', [])
             if not items: break
             all_items.extend(items)
+            
+            # 마지막 기사의 발행일이 lookback_days 이전이면 크롤링을 중단합니다.
             last_pub_date = datetime.strptime(items[-1]['pubDate'], "%a, %d %b %Y %H:%M:%S %z")
-            if last_pub_date < datetime.now(KST) - timedelta(days=1): break
+            if last_pub_date < datetime.now(KST) - timedelta(days=lookback_days): 
+                break
         except Exception as e:
             print(f"API 호출 중 오류 발생하여 수집을 중단합니다. {e}")
             break
@@ -52,12 +73,15 @@ def collect_news():
     keywords = [r['Keyword'] for r in keyword_records if str(r.get('Keyword', '')).strip()]
     media_list = [r['Domain'] for r in spreadsheet.worksheet("Config_Media").get_all_records() if str(r.get('Domain', '')).strip()]
     
-    print(f"기사 수집을 시작합니다. 타깃 키워드는 총 {len(keywords)}개입니다.")
+    # 💡 동적 탐색 기간 계산
+    lookback_days = get_lookback_days()
+    print(f"기사 수집을 시작합니다. 타깃 키워드는 총 {len(keywords)}개이며, 최근 {lookback_days}일({lookback_days * 24}시간) 범위의 기사를 탐색합니다.")
+    
     rows_to_add = []
 
     for kw in keywords:
         print(f"[{kw}] 키워드로 뉴스 원본을 수집합니다.")
-        items = get_naver_news_bulk(kw)
+        items = get_naver_news_bulk(kw, lookback_days)
         
         for item in items:
             title = item['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
@@ -72,7 +96,7 @@ def collect_news():
             if not is_target_media: continue
                 
             pub_date = datetime.strptime(item['pubDate'], "%a, %d %b %Y %H:%M:%S %z")
-            if pub_date >= datetime.now(KST) - timedelta(days=1):
+            if pub_date >= datetime.now(KST) - timedelta(days=lookback_days):
                 pub_date_str = pub_date.strftime("%Y-%m-%d %H:%M:%S")
                 rows_to_add.append([pub_date_str, title, actual_link])
                 existing_links.append(actual_link)

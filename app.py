@@ -99,7 +99,7 @@ if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_c
             else: 
                 status.update(label=f"❌ 가동에 실패했습니다. 에러 코드는 {res.status_code} 입니다.", state="error")
 
-# [버튼 2] 재채점
+# [버튼 2] 재채점 (수집 단계를 건너뛰도록 score_only 신호로 변경 완료)
 if st.sidebar.button("🔄 최근 기사 바뀐 룰로 재채점하기", use_container_width=True):
     if "GITHUB_TOKEN" not in st.secrets:
         st.sidebar.error("스트림릿 비밀 금고에 깃허브 토큰이 없습니다.")
@@ -141,8 +141,8 @@ if st.sidebar.button("🔄 최근 기사 바뀐 룰로 재채점하기", use_con
                     if inbox_to_append:
                         inbox_sheet.append_rows(inbox_to_append)
                     
-                    st.write("🚀 서버를 깨워 새로운 배점 방식으로 전면 재채점을 시작합니다.")
-                    res = requests.post(url, headers=headers, json={"ref": "main", "inputs": {"run_type": "full"}})
+                    st.write("🚀 기사 수집을 건너뛰고 변경된 배점 방식으로 초고속 재채점을 시작합니다.")
+                    res = requests.post(url, headers=headers, json={"ref": "main", "inputs": {"run_type": "score_only"}})
                     
                     if res.status_code == 204:
                         status.update(label="🔄 변경된 룰로 기사 재채점 분석이 작동 중입니다.", state="running")
@@ -169,7 +169,7 @@ if st.sidebar.button("🔄 최근 기사 바뀐 룰로 재채점하기", use_con
             except Exception as e:
                 status.update(label=f"❌ 오류가 발생했습니다. 내용은 {e} 입니다.", state="error")
 
-# 🚀 [버튼 3] 신규: 탑 20 즉시 발송
+# [버튼 3] 신규: 탑 20 즉시 발송
 if st.sidebar.button("📤 현재 탑 20 리포트 즉시 발송", use_container_width=True):
     if "GITHUB_TOKEN" not in st.secrets:
         st.sidebar.error("스트림릿 비밀 금고에 깃허브 토큰이 없습니다.")

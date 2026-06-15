@@ -109,7 +109,7 @@ def process_ai_score():
                 if engine == "유료 Claude" or engine == "전체":
                     try:
                         msg = claude_client.messages.create(
-                            model="claude-3-5-sonnet-20241022",
+                            model="claude-haiku-4-5-20251001",
                             max_tokens=10,
                             system=system_persona,
                             messages=[{"role": "user", "content": evaluation_prompt}]

@@ -7,6 +7,10 @@ on:
         description: 'cron-job.org 스케줄 가동 여부'
         required: false
         default: 'false'
+      run_type:
+        description: '실행 모드 (full / report_only)'
+        required: false
+        default: 'full'
 
 jobs:
   automation-orchestrator:
@@ -42,4 +46,12 @@ jobs:
           else
             export GITHUB_EVENT_NAME="workflow_dispatch"
           fi
-          python orchestrator.py
+          
+          # 👇 런 타입이 report_only면 발송 파일만 단독으로 실행합니다.
+          if [ "${{ github.event.inputs.run_type }}" == "report_only" ]; then
+            echo "🚀 메세지 즉시 발송 모드로 단독 실행합니다."
+            python telegram_reporter.py
+          else
+            echo "🚀 전체 뉴스 수집 및 분석 파이프라인을 실행합니다."
+            python orchestrator.py
+          fi

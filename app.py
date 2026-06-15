@@ -7,7 +7,6 @@ import requests
 import time
 from datetime import datetime, timedelta
 import pytz
-import streamlit.components.v1 as components
 
 st.set_page_config(page_title="뉴스 자동화 대시보드", page_icon="📰", layout="wide")
 
@@ -72,12 +71,13 @@ headers = {"Authorization": f"token {st.secrets.get('GITHUB_TOKEN', '')}", "Acce
 url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/dispatches"
 runs_url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/runs"
 
+# [버튼 1] 전체 가동
 if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_container_width=True):
     if "GITHUB_TOKEN" not in st.secrets:
         st.sidebar.error("스트림릿 비밀 금고에 깃허브 토큰이 없습니다.")
     else:
         with st.status("🚀 깃허브 서버 가동 준비 중입니다.", expanded=True) as status:
-            res = requests.post(url, headers=headers, json={"ref": "main"})
+            res = requests.post(url, headers=headers, json={"ref": "main", "inputs": {"run_type": "full"}})
             if res.status_code == 204: 
                 status.update(label="🔄 현재 신규 기사 분석 파이프라인이 작동 중입니다.", state="running")
                 time.sleep(5)
@@ -99,6 +99,7 @@ if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_c
             else: 
                 status.update(label=f"❌ 가동에 실패했습니다. 에러 코드는 {res.status_code} 입니다.", state="error")
 
+# [버튼 2] 재채점
 if st.sidebar.button("🔄 최근 기사 바뀐 룰로 재채점하기", use_container_width=True):
     if "GITHUB_TOKEN" not in st.secrets:
         st.sidebar.error("스트림릿 비밀 금고에 깃허브 토큰이 없습니다.")
@@ -141,7 +142,7 @@ if st.sidebar.button("🔄 최근 기사 바뀐 룰로 재채점하기", use_con
                         inbox_sheet.append_rows(inbox_to_append)
                     
                     st.write("🚀 서버를 깨워 새로운 배점 방식으로 전면 재채점을 시작합니다.")
-                    res = requests.post(url, headers=headers, json={"ref": "main"})
+                    res = requests.post(url, headers=headers, json={"ref": "main", "inputs": {"run_type": "full"}})
                     
                     if res.status_code == 204:
                         status.update(label="🔄 변경된 룰로 기사 재채점 분석이 작동 중입니다.", state="running")
@@ -167,6 +168,35 @@ if st.sidebar.button("🔄 최근 기사 바뀐 룰로 재채점하기", use_con
                     status.update(label="⚠️ 재채점 범위 내에 보관된 기사가 존재하지 않습니다.", state="complete", expanded=False)
             except Exception as e:
                 status.update(label=f"❌ 오류가 발생했습니다. 내용은 {e} 입니다.", state="error")
+
+# 🚀 [버튼 3] 신규: 탑 20 즉시 발송
+if st.sidebar.button("📤 현재 탑 20 리포트 즉시 발송", use_container_width=True):
+    if "GITHUB_TOKEN" not in st.secrets:
+        st.sidebar.error("스트림릿 비밀 금고에 깃허브 토큰이 없습니다.")
+    else:
+        with st.status("📤 텔레그램 발송 서버를 호출 중입니다...", expanded=True) as status:
+            # run_type을 report_only로 전송하여 발송만 실행
+            res = requests.post(url, headers=headers, json={"ref": "main", "inputs": {"run_type": "report_only"}})
+            if res.status_code == 204:
+                status.update(label="🚀 현재 저장된 탑 20 리포트를 전송하고 있습니다.", state="running")
+                time.sleep(5)
+                finished = False
+                for _ in range(24): # 분석 없이 발송만 하므로 대기 시간을 2분(24*5초)으로 단축
+                    try:
+                        r = requests.get(runs_url, headers=headers).json()
+                        runs = r.get("workflow_runs", [])
+                        if runs and runs[0]["status"] == "completed":
+                            finished = True
+                            break
+                    except Exception: pass
+                    time.sleep(5)
+                if finished:
+                    status.update(label="✅ 텔레그램 리포트 발송이 완료되었습니다!", state="complete", expanded=False)
+                else:
+                    status.update(label="⏳ 발송이 길어지고 있습니다. 잠시 후 텔레그램을 확인해주세요.", state="complete", expanded=False)
+            else:
+                status.update(label=f"❌ 서버 호출에 실패했습니다. 에러 코드는 {res.status_code} 입니다.", state="error")
+
 
 st.sidebar.markdown("---")
 

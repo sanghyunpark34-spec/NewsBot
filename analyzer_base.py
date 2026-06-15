@@ -39,8 +39,6 @@ def process_base_score():
         penalty_dict = {str(r.get("Keyword", "")).strip(): float(r.get("Coefficient", r.get("Score", 20.0))) for r in neg_records if str(r.get("Keyword", "")).strip()}
     except: penalty_dict = {}
 
-    # 💡 [핵심 복구] 100점 만점 환산을 위한 최대 분모(Max Denominator) 계산
-    # 상위 4개 키워드 점수 합 + 최고 매체 점수
     top_kw_scores = sorted(keywords.values(), reverse=True)
     max_4_kw_sum = sum(top_kw_scores[:4]) if top_kw_scores else 40.0
     max_media_score = max(media_dict.values()) if media_dict else 5.0
@@ -50,11 +48,13 @@ def process_base_score():
     rows = inbox_sheet.get_all_values()
     if len(rows) <= 1: return
 
-    # 3. 기초 점수 산정 및 100점 정규화
+    # 3. 기초 점수 산정 및 100점 정규화 (요약문 탐색 추가)
     processed_rows = []
     for row in rows[1:]:
         if len(row) < 3: continue
         date, title, url = row[0], row[1], row[2]
+        # 💡 수집기에서 넘어온 4번째 열(요약문) 데이터를 안전하게 받아옵니다.
+        desc = row[3] if len(row) > 3 else ""
         
         matched_media = 'Naver'
         media_score = 0.0
@@ -66,10 +66,10 @@ def process_base_score():
         
         matched_kws = []
         kw_score_sum = 0.0
-        # 키워드 점수 높은 순으로 매칭하기 위해 정렬된 키워드 사용
         sorted_kw_items = sorted(keywords.items(), key=lambda item: item[1], reverse=True)
         for kw, pt in sorted_kw_items:
-            if kw in title:
+            # 💡 [핵심] 제목뿐만 아니라 요약문(desc)에서도 타깃 키워드를 검사합니다.
+            if kw in title or kw in desc:
                 matched_kws.append(f"{kw}({int(pt)})")
                 kw_score_sum += pt
                 
@@ -79,14 +79,13 @@ def process_base_score():
         applied_penalties = []
         penalty_sum = 0.0
         for pk, penalty_val in penalty_dict.items():
-            if pk in title:
+            # 💡 [핵심] 제외 단어도 요약문까지 샅샅이 뒤져서 감점시킵니다.
+            if pk in title or pk in desc:
                 applied_penalties.append(f"{pk}({int(penalty_val)})")
                 penalty_sum += penalty_val
         
-        # 순수 합산 점수(Raw Score)
         raw_score = max(0.0, (kw_score_sum + media_score) - penalty_sum)
         
-        # 💡 [핵심 복구] 100점 만점 스케일링 (정규화)
         if raw_score > 0:
             base_score = min(round((raw_score / max_denominator) * 100, 2), 100.0)
             
@@ -94,7 +93,8 @@ def process_base_score():
             if applied_penalties:
                 kw_str += f" [🔻 감점: {', '.join(applied_penalties)}]"
             
-            processed_rows.append([date, title, url, matched_media, kw_str, base_score])
+            # 💡 AI가 읽을 수 있도록 요약문(desc)을 7번째 칸에 추가해서 다음 방으로 넘깁니다.
+            processed_rows.append([date, title, url, matched_media, kw_str, base_score, desc])
 
     # 4. 점수 기반 정렬 후 우선순위 중복 제거
     processed_rows.sort(key=lambda x: float(x[5]), reverse=True)
@@ -113,14 +113,12 @@ def process_base_score():
         if not is_duplicate:
             final_survivors.append(row)
             accepted_titles.append(current_title)
-        else:
-            pass # 중복 기사 조용히 탈락
             
-    # 5. DB_Stage 반영
+    # 5. DB_Stage 반영 및 Inbox 초기화
     stage_sheet.resize(rows=1)
     if final_survivors:
         stage_sheet.append_rows(final_survivors)
-        print(f"✅ 총 {len(final_survivors)}개의 기사가 100점 만점 기준으로 정규화되어 선별되었습니다.")
+        print(f"✅ 총 {len(final_survivors)}개의 기사가 요약문 검증을 거쳐 100점 만점으로 선별되었습니다.")
     else:
         print("⚠️ 발송 기준을 충족하는 기사가 없습니다.")
         

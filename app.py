@@ -5,9 +5,8 @@ import json
 import pandas as pd
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
-import streamlit.components.v1 as components
 
 # 1. 페이지 기본 설정
 st.set_page_config(page_title="뉴스 자동화 대시보드", page_icon="📰", layout="wide")
@@ -30,7 +29,7 @@ except Exception as e:
     st.error(f"구글 시트 연결에 실패했습니다. 발생한 오류: {e}")
     st.stop()
 
-# 3. 사이드바 및 타이머 UI
+# 3. 사이드바 제어판 UI
 st.sidebar.title("통합 제어판 ⚙️")
 
 # 💡 [데이터 신선도] DB_Archive 시트에서 가장 최신 기사의 발행 시점과 경과 시간 계산
@@ -59,58 +58,33 @@ try:
 except Exception as e:
     pass
 
-timer_html = """
-<div style="background-color: #E8F1FF; padding: 12px; border-radius: 8px; text-align: center; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-    <div style="font-size: 13px; color: #4F8BF9; font-weight: bold; margin-bottom: 4px;">⏱️ 다음 자동 기사 서치(오전 7시 48분)까지</div>
-    <div id="countdown" style="font-size: 24px; font-weight: 900; color: #1E3A8A; letter-spacing: 1px;"></div>
-    <hr style="margin: 8px 0; border: 0; border-top: 0.5px solid #C6D8FF;">
-    <div style="font-size: 11px; color: #6B7280; margin-bottom: 2px;">🟢 가장 최근 수집된 기사 발행일</div>
-    <div style="font-size: 13px; font-weight: bold; color: #374151;">VAR_LATEST <span style="color:#EF4444; font-size:11px; font-weight:600;">VAR_DIFF</span></div>
-</div>
-<script>
-    function updateTimer() {
-        var now = new Date();
-        var utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-        var kst = new Date(utc + (3600000 * 9));
-        var target = new Date(kst);
-        target.setHours(7, 48, 0, 0);
-        if (kst.getHours() > 7 || (kst.getHours() == 7 && kst.getMinutes() >= 48)) {
-            target.setDate(target.getDate() + 1);
-        }
-        var diff = target - kst;
-        var hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-        var minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        var seconds = Math.floor((diff % (1000 * 60)) / 1000);
-        document.getElementById("countdown").innerText = hours + "시간 " + minutes + "분 " + seconds + "초";
-    }
-    setInterval(updateTimer, 1000);
-    updateTimer();
-</script>
-""".replace("VAR_LATEST", latest_article_str).replace("VAR_DIFF", time_diff_str)
+# 타이머는 제거하고 알기 쉬운 신선도 정보 위젯만 깔끔하게 배치합니다.
+st.sidebar.markdown(
+    f"""
+    <div style="background-color: #E8F1FF; padding: 14px; border-radius: 8px; text-align: center; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <div style="font-size: 11px; color: #6B7280; margin-bottom: 3px;">🟢 가장 최근 보관된 뉴스 발행일</div>
+        <div style="font-size: 14px; font-weight: bold; color: #374151;">{latest_article_str} <span style="color:#EF4444; font-size:12px; font-weight:600;">{time_diff_str}</span></div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-with st.sidebar:
-    components.html(timer_html, height=145)
+st.sidebar.subheader("🚀 파이프라인 제어")
+github_repo = "sanghyunpark34-spec/NewsBot"
+workflow_file = "news_pipeline.yml"
+headers = {"Authorization": f"token {st.secrets.get('GITHUB_TOKEN', '')}", "Accept": "application/vnd.github.v3+json"}
+url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/dispatches"
+runs_url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/runs"
 
-# 4. 퀵 기사 서치 실행 버튼 (실시간 상태 연동)
-st.sidebar.subheader("🚀 퀵 기사 서치 실행")
+# [버튼 1] 지금 기사 서치 가동
 if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_container_width=True):
-    github_repo = "sanghyunpark34-spec/NewsBot"
-    workflow_file = "news_pipeline.yml"
-    
     if "GITHUB_TOKEN" not in st.secrets:
         st.sidebar.error("스트림릿 Secrets 금고에 깃허브 토큰이 없습니다.")
     else:
-        url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/dispatches"
-        runs_url = f"https://api.github.com/repos/{github_repo}/actions/workflows/{workflow_file}/runs"
-        headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}", "Accept": "application/vnd.github.v3+json"}
-        
         with st.status("🚀 깃허브 서버 가동 준비 중...", expanded=True) as status:
-            st.write("명령을 전송하는 중입니다...")
             res = requests.post(url, headers=headers, json={"ref": "main"})
-            
             if res.status_code == 204: 
-                status.update(label="🔄 현재 프로그램이 작동 중입니다...", state="running")
-                st.write("✅ 깃허브 연결 성공! AI 평가가 완료될 때까지 대기합니다 (최대 6분).")
+                status.update(label="🔄 현재 신규 기사 분석 파이프라인 작동 중...", state="running")
                 time.sleep(5)
                 finished = False
                 for _ in range(72):
@@ -120,23 +94,92 @@ if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_c
                         if runs and runs[0]["status"] == "completed":
                             finished = True
                             break
-                    except Exception:
-                        pass
+                    except Exception: pass
                     time.sleep(5)
-                    
                 if finished:
-                    status.update(label="✅ 작동이 완전히 종료되었습니다! 텔레그램을 확인해주세요.", state="complete", expanded=False)
+                    status.update(label="✅ 작동 완료되었습니다! 텔레그램을 확인해주세요.", state="complete", expanded=False)
+                    st.rerun()
                 else:
                     status.update(label="⏳ 분석량이 많아 지연되고 있습니다. 곧 전송됩니다.", state="complete", expanded=False)
             else: 
                 status.update(label=f"❌ 가동 실패 (에러 코드: {res.status_code})", state="error")
+
+# [버튼 2] 🔄 최근 기사 바뀐 룰로 재채점하기 (스마트 재채점 기능)
+if st.sidebar.button("🔄 최근 기사 바뀐 룰로 재채점하기", use_container_width=True):
+    if "GITHUB_TOKEN" not in st.secrets:
+        st.sidebar.error("스트림릿 Secrets 금고에 깃허브 토큰이 없습니다.")
+    else:
+        with st.status("🔄 기준 변경에 따른 데이터 재배치 및 재채점 준비 중...", expanded=True) as status:
+            try:
+                now_kst = datetime.now(KST)
+                lookback_days = 3.5 if now_kst.weekday() in [0, 5, 6] else 1.5
+                cutoff_date = now_kst - timedelta(days=lookback_days)
+                
+                archive_sheet = spreadsheet.worksheet("DB_Archive")
+                archive_rows = archive_sheet.get_all_values()
+                
+                keep_rows = [archive_rows[0]]
+                reprocess_rows = []
+                
+                for row in archive_rows[1:]:
+                    if len(row) < 3: 
+                        continue
+                    try:
+                        pub_date = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
+                        if pub_date >= cutoff_date.replace(tzinfo=None):
+                            reprocess_rows.append(row)
+                        else:
+                            keep_rows.append(row)
+                    except Exception:
+                        keep_rows.append(row)
+                
+                if reprocess_rows:
+                    st.write(f"📊 최근 {lookback_days}일 기준 대상 기사 {len(reprocess_rows)}개를 대기실로 이동합니다.")
+                    archive_sheet.clear()
+                    archive_sheet.update(keep_rows)
+                    
+                    inbox_sheet = spreadsheet.worksheet("DB_Inbox")
+                    inbox_to_append = []
+                    for r in reprocess_rows:
+                        inbox_to_append.append([r[0], r[1], r[2]])
+                    
+                    if inbox_to_append:
+                        inbox_sheet.append_rows(inbox_to_append)
+                    
+                    st.write("🚀 서버를 깨워 새로운 배점 방식으로 전면 재채점을 시작합니다.")
+                    res = requests.post(url, headers=headers, json={"ref": "main"})
+                    
+                    if res.status_code == 204:
+                        status.update(label="🔄 변경된 룰로 기사 재채점 분석 작동 중...", state="running")
+                        time.sleep(5)
+                        finished = False
+                        for _ in range(72):
+                            try:
+                                r = requests.get(runs_url, headers=headers).json()
+                                runs = r.get("workflow_runs", [])
+                                if runs and runs[0]["status"] == "completed":
+                                    finished = True
+                                    break
+                            except Exception: pass
+                            time.sleep(5)
+                        if finished:
+                            status.update(label="✅ 새로운 룰로 재채점 및 리포트 발송이 완료되었습니다!", state="complete", expanded=False)
+                            st.rerun()
+                        else:
+                            status.update(label="⏳ 재채점 분석이 길어지고 있습니다. 잠시 후 완료됩니다.", state="complete", expanded=False)
+                    else:
+                        status.update(label=f"❌ 원격 서버 가동 실패 (에러 코드: {res.status_code})", state="error")
+                else:
+                    status.update(label="⚠️ 재채점 범위 내에 보관된 기사가 없습니다.", state="complete", expanded=False)
+            except Exception as e:
+                status.update(label=f"❌ 오류 발생: {e}", state="error")
 
 st.sidebar.markdown("---")
 
 # 5. 메인 화면 메뉴 라우팅
 menu = st.sidebar.radio(
     "세부 메뉴를 선택하세요",
-    ["📊 종합 상황판", "🔑 포함/제외 단어 제어", "📡 타깃 매체 제어", "🤖 시스템 및 알림 설정", "📜 AI 페르소나 및 평가 기준"]
+    ["📊 종합 상황판", "🔑 포함/제외 단어 제어", "📡 타깃 매체 제어", "🤖 시스템 및 알림 설정", "📜 AI 페르소나 및 평가 기준", "🎯 Project B: 피드백 수집판"]
 )
 
 # [메뉴 1] 종합 상황판
@@ -171,11 +214,8 @@ elif menu == "🔑 포함/제외 단어 제어":
             updated_kws = []
             for idx, row in enumerate(kw_data):
                 kw = str(row.get('Keyword', '')).strip()
-                
-                # 💡 에러 원천 차단: 여러 줄로 확실하게 분리
                 if not kw:
                     continue
-                    
                 c1, c2 = st.columns([3, 1.5])
                 with c1: 
                     st.markdown(f"<div style='padding-top: 8px; font-weight: 600; font-size: 16px; color: #1E3A8A;'>{kw}</div>", unsafe_allow_html=True)
@@ -210,11 +250,8 @@ elif menu == "🔑 포함/제외 단어 제어":
             updated_negs = []
             for idx, row in enumerate(neg_data):
                 kw = str(row.get('Keyword', '')).strip()
-                
-                # 💡 에러 원천 차단: 여러 줄로 확실하게 분리
                 if not kw:
                     continue
-                    
                 c1, c2 = st.columns([3, 1.5])
                 with c1: 
                     st.markdown(f"<div style='padding-top: 8px; font-weight: 600; font-size: 16px; color: #991B1B;'>{kw}</div>", unsafe_allow_html=True)
@@ -246,11 +283,8 @@ elif menu == "📡 타깃 매체 제어":
         updated_media = []
         for idx, row in enumerate(media_data):
             domain = str(row.get('Domain', '')).strip()
-            
-            # 💡 에러 원천 차단: 여러 줄로 확실하게 분리
             if not domain:
                 continue
-                
             c1, c2 = st.columns([3, 1])
             with c1: 
                 st.markdown(f"<div style='padding-top: 8px; font-weight: 600; font-size: 16px; color: #065F46;'>{domain}</div>", unsafe_allow_html=True)
@@ -332,3 +366,79 @@ elif menu == "📜 AI 페르소나 및 평가 기준":
             st.success("저장 완료!")
     except Exception: 
         st.error("Config_Rubric 시트 오류")
+
+# 🚀 [메뉴 6] Project B: 피드백 수집판 (신규 추가)
+elif menu == "🎯 Project B: 피드백 수집판":
+    st.title("🎯 Project B: 뉴스 리포트 피드백 수집판")
+    st.markdown("---")
+    st.markdown("##### 최근 선정된 탑 20 기사 목록을 검토하고 취향 피드백을 남겨주세요. 이 데이터는 가중치 자동 강화학습(Project B) 엔진의 핵심 학습 데이터셋으로 영구 누적됩니다.")
+    
+    try:
+        top20_sheet = spreadsheet.worksheet("DB_Top20")
+        data = top20_sheet.get_all_records()
+        if data:
+            df = pd.DataFrame(data)
+            latest_time = df['Execution_Time'].max()
+            df_latest = df[df['Execution_Time'] == latest_time].reset_index(drop=True)
+            
+            with st.form("feedback_form"):
+                feedback_results = []
+                for idx, row in df_latest.iterrows():
+                    st.markdown(f"<div style='font-size: 16px; font-weight: bold; color: #1E3A8A; margin-top: 10px;'>[{idx+1}] {row['Title']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"🔗 [기사 원문 열기]({row['Link']}) | 📡 매체: **{row['Media']}** | ⭐ 최종 총점: **{row['Total_Score']}점**")
+                    st.markdown(f"🏷️ 연관 추출 키워드: `{row['Matched_Keywords']}`")
+                    
+                    fb = st.radio(
+                        "이 기사에 대한 품질 평가:",
+                        ["평가 보류", "👍 좋아요 (이런 기사 추천 가중치 상승)", "👎 싫어요 (이런 기사 필터링 감점 강화)"],
+                        key=f"fb_select_{idx}",
+                        horizontal=True
+                    )
+                    st.markdown("<hr style='margin: 12px 0; border: 0; border-top: 1px dashed #E5E7EB;'>", unsafe_allow_html=True)
+                    
+                    feedback_results.append({
+                        "Date": row['Date'],
+                        "Title": row['Title'],
+                        "Link": row['Link'],
+                        "Media": row['Media'],
+                        "Matched_Keywords": row['Matched_Keywords'],
+                        "Total_Score": row['Total_Score'],
+                        "Feedback": fb
+                    })
+                    
+                submit_btn = st.form_submit_button("💾 피드백 데이터 수집 저장소에 동기화", use_container_width=True)
+                
+                if submit_btn:
+                    try:
+                        try:
+                            fb_sheet = spreadsheet.worksheet("DB_Feedback")
+                        except Exception:
+                            fb_sheet = spreadsheet.add_worksheet(title="DB_Feedback", rows="5000", cols="8")
+                            fb_sheet.append_row(["Feedback_Time", "Article_Date", "Title", "Link", "Media", "Matched_Keywords", "Total_Score", "Feedback_Result"])
+                        
+                        now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+                        rows_to_append = []
+                        for f_item in feedback_results:
+                            if f_item["Feedback"] != "평가 보류":
+                                rows_to_append.append([
+                                    now_str,
+                                    f_item["Date"],
+                                    f_item["Title"],
+                                    f_item["Link"],
+                                    f_item["Media"],
+                                    f_item["Matched_Keywords"],
+                                    f_item["Total_Score"],
+                                    f_item["Feedback"]
+                                ])
+                                
+                        if rows_to_append:
+                            fb_sheet.append_rows(rows_to_append)
+                            st.success(f"✅ 총 {len(rows_to_append)}개의 고품질 취향 피드백이 DB_Feedback 시트에 안전하게 영구 저장되었습니다. Project B 학습 인풋으로 활용 가능합니다.")
+                        else:
+                            st.warning("⚠️ '👍 좋아요' 또는 '👎 싫어요' 마킹을 한 기사가 한 개도 발견되지 않았습니다.")
+                    except Exception as e:
+                        st.error(f"데이터베이스 기록 실패: {e}")
+        else:
+            st.info("피드백을 진행할 탑 20 기사 목록 정보가 존재하지 않습니다.")
+    except Exception as e:
+        st.warning(f"시트 로드 오류: {e}")

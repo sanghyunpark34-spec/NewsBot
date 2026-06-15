@@ -6,12 +6,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 KST = pytz.timezone('Asia/Seoul')
 
-# 1. 안전한 API 키 로드 (키가 없어도 프로그램이 뻗지 않도록 방어)
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
 CLAUDE_KEY = os.environ.get("CLAUDE_API_KEY", "")
 
-# 각 AI 라이브러리 안전 임포트 (버전 충돌 무시)
 try:
     import google.generativeai as genai
     if GEMINI_KEY: genai.configure(api_key=GEMINI_KEY)
@@ -30,7 +28,6 @@ try:
 except ImportError:
     claude_client = None
 
-# 구글 시트 연결
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
     json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"]),
     ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -55,12 +52,18 @@ def process_ai_score():
     stage_sheet = spreadsheet.worksheet("DB_Stage")
     archive_sheet = spreadsheet.worksheet("DB_Archive")
     
+    # 💡 DB_AI_Report 시트 준비 (Top20을 대체하는 명확한 기준의 시트)
+    try:
+        ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
+    except:
+        ai_report_sheet = spreadsheet.add_worksheet(title="DB_AI_Report", rows="1000", cols="8")
+        ai_report_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Matched_Keywords", "Total_Score", "Sent"])
+    
     rows = stage_sheet.get_all_values()
     if len(rows) <= 1:
         print("⚠️ DB_Stage에 분석할 기사가 없습니다.")
         return
 
-    # 대시보드 시스템 설정에서 선택한 엔진 가져오기
     try:
         sys_sheet = spreadsheet.worksheet("Config_System")
         config = {str(r.get("Key")): str(r.get("Value")) for r in sys_sheet.get_all_records()}
@@ -70,9 +73,11 @@ def process_ai_score():
 
     system_persona, rubric_prompt = get_persona_and_rubric()
     
-    # 💡 최상위 20개 기사만 선별하여 한 번에 채점
+    # 현재는 속도/비용 최적화를 위해 상위 20개만 AI에게 보냅니다. (이 숫자는 나중에 언제든 조절 가능)
     target_rows = rows[1:21]
-    print(f"📊 총 {len(target_rows)}개의 기사를 선별하여 AI에게 한 번에 채점을 요청합니다. (선택된 엔진: {engine_choice})")
+    remaining_rows = rows[21:]
+    
+    print(f"📊 총 {len(rows)-1}개의 통과 기사 중, 상위 {len(target_rows)}개 그룹만 AI에게 평가를 요청합니다.")
 
     batch_prompt = f"{system_persona}\n\n{rubric_prompt}\n\n다음 {len(target_rows)}개 기사 제목에 대해 각각 0~100점 사이로 채점해줘.\n형식은 반드시 JSON으로: {{'1': 점수, '2': 점수, ...}}\n\n기사 리스트:\n"
     for i, row in enumerate(target_rows):
@@ -86,10 +91,10 @@ def process_ai_score():
     if "Claude" in engine_choice or "전체" in engine_choice: engines_to_run.append("Claude")
 
     if not engines_to_run or engine_choice == "AI 사용 안 함":
-        print("⚠️ AI 엔진이 선택되지 않았습니다. 기초 점수만으로 아카이브에 이관합니다.")
+        print("⚠️ AI 엔진이 선택되지 않았습니다.")
     else:
         for model_name in engines_to_run:
-            print(f"🚀 {model_name} 엔진에 20개 기사 채점 요청 중...")
+            print(f"🚀 {model_name} 엔진에 채점 요청 중...")
             try:
                 res_json = ""
                 if model_name == "Gemini" and genai:
@@ -103,7 +108,6 @@ def process_ai_score():
                     msg = claude_client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=2000, system=system_persona, messages=[{"role": "user", "content": batch_prompt}])
                     res_json = msg.content[0].text
                 
-                # 결과물에서 JSON만 깔끔하게 파싱
                 if res_json:
                     start, end = res_json.find('{'), res_json.rfind('}')
                     if start != -1 and end != -1:
@@ -111,16 +115,15 @@ def process_ai_score():
                         for k, v in data.items():
                             if k not in scores_map: scores_map[k] = []
                             scores_map[k].append((model_name, int(v)))
-                        print(f"✅ {model_name} 엔진 채점 완벽 성공!")
-                    else:
-                        print(f"❌ {model_name} 응답에서 점수를 찾을 수 없습니다.")
+                        print(f"✅ {model_name} 채점 완료!")
             except Exception as e:
-                print(f"❌ {model_name} 엔진 에러 발생 (스킵합니다): {e}")
+                print(f"❌ {model_name} 에러 (스킵): {e}")
 
-    # 최종 점수 병합 및 DB 저장
     archive_rows = []
+    ai_report_rows = [] # 💡 AI 평가를 받은 기사들만 모이는 전용 리스트
     now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     
+    # 1. AI 평가를 받은 그룹 처리 (Archive + AI_Report 양쪽 모두 저장)
     for i, row in enumerate(target_rows):
         idx_str = str(i+1)
         base_score = float(row[5])
@@ -132,14 +135,29 @@ def process_ai_score():
         else:
             detail_str, total = "0", base_score
         
-        # 새로운 시간, 제목, 링크, 매체, 키워드, 기초점수, AI상세, 총점, 발송여부
+        # Archive 보존용 (모든 상세 데이터)
         archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
+        
+        # 💡 AI_Report 발송 대기용 (텔레그램이 요구하는 필수 규격)
+        ai_report_rows.append([now_str, row[0], row[1], row[2], row[3], row[4], total, 'N'])
 
+    # 2. AI 평가를 받지 못한 나머지 그룹 처리 (Archive에만 조용히 보존)
+    for row in remaining_rows:
+        base_score = float(row[5])
+        archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, "AI 미평가 (순위 밖)", base_score, 'N'])
+
+    # 시트 업데이트
     if archive_rows:
         archive_sheet.append_rows(archive_rows)
-        print(f"💾 총 {len(archive_rows)}개의 기사를 DB_Archive에 성공적으로 영구 저장했습니다.")
+        print(f"💾 총 {len(archive_rows)}개의 전체 기사를 DB_Archive에 영구 저장했습니다.")
+        
+    if ai_report_rows:
+        # AI 평가 총점을 기준으로 가장 높은 기사가 위로 오도록 정렬
+        ai_report_rows.sort(key=lambda x: float(x[6]), reverse=True)
+        ai_report_sheet.append_rows(ai_report_rows)
+        print(f"🎯 AI 평가가 완료된 {len(ai_report_rows)}개의 기사를 DB_AI_Report 발송 대기열에 등록했습니다.")
     
-    stage_sheet.resize(rows=1) # 대기실 비우기
+    stage_sheet.resize(rows=1) # 작업이 끝난 Stage는 깨끗하게 초기화
     print("🏁 AI 분석 및 이관 작업이 모두 완료되었습니다.")
 
 if __name__ == "__main__":

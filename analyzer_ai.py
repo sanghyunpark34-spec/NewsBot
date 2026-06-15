@@ -131,7 +131,17 @@ def process_ai_score():
                 else:
                     ai_score_formatted = "0"
                 
-                time.sleep(5) 
+                # DB에서 딜레이 값을 읽어와 적용 (실패 시 기본 5초)
+                try:
+                    sys_sheet = spreadsheet.worksheet("Config_System")
+                    delay_val = 5
+                    for r in sys_sheet.get_all_records():
+                        if r.get("Key") == "AI_DELAY_SECONDS":
+                            delay_val = int(r.get("Value"))
+                            break
+                    time.sleep(delay_val)
+                except Exception:
+                    time.sleep(5) 
                 
             if engine == "AI 사용 안 함":
                 total_score = round(base_score, 2)

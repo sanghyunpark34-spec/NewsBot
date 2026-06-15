@@ -2,7 +2,6 @@ import os, json, gspread, requests
 from oauth2client.service_account import ServiceAccountCredentials
 
 def send_telegram():
-    # 💡 깃허브 액션 환경변수를 통해 스케줄 가동 여부 확인
     is_scheduled = os.environ.get("GITHUB_EVENT_NAME") == "schedule"
     
     if is_scheduled:
@@ -55,7 +54,6 @@ def send_telegram():
     unsent_rows = []
     unsent_indices = []
     
-    # Sent 값이 'N'인 기사만 골라냅니다.
     for i, row in enumerate(rows[1:]):
         sent_idx = col_idx.get('Sent', 9)
         if len(row) > sent_idx and row[sent_idx] == 'N':
@@ -70,14 +68,9 @@ def send_telegram():
     for i, row in enumerate(unsent_rows[:20]):
         title = row[col_idx.get('Title', 2)]
         link = row[col_idx.get('Link', 3)]
-        total_score = row[col_idx.get('Total_Score', 8)]
-        ai_score = row[col_idx.get('AI_Score', 7)]
-        kws = row[col_idx.get('Matched_Keywords', 5)]
         
         msg += f"{i+1}. {title}\n"
-        msg += f"🔗 {link}\n"
-        msg += f"⭐️ 총점: {total_score}점 (AI 상세: {ai_score})\n"
-        msg += f"🏷️ {kws}\n\n"
+        msg += f"🔗 {link}\n\n"
 
     for chat_id in target_chats:
         res = requests.post(
@@ -87,7 +80,6 @@ def send_telegram():
         if res.status_code == 200:
             print(f"✅ {chat_id} 방 발송 완료!")
 
-    # 💡 [핵심 수정] 스케줄에 의한 가동일 때만 Sent 값을 'Y'로 업데이트합니다.
     if is_scheduled:
         for idx in unsent_indices[:20]:
             ai_report_sheet.update_cell(idx, col_idx.get('Sent', 9) + 1, 'Y')

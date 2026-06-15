@@ -100,7 +100,7 @@ def process_ai_score():
                     res = groq_client.chat.completions.create(model="llama3-70b-8192", messages=[{"role": "user", "content": batch_prompt}])
                     res_json = res.choices[0].message.content
                 elif model_name == "Claude" and claude_client:
-                    msg = claude_client.messages.create(model="claude-4-5-haiku-20251001", max_tokens=2000, system=system_persona, messages=[{"role": "user", "content": batch_prompt}])
+                    msg = claude_client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=2000, system=system_persona, messages=[{"role": "user", "content": batch_prompt}])
                     res_json = msg.content[0].text
                 
                 # 결과물에서 JSON만 깔끔하게 파싱

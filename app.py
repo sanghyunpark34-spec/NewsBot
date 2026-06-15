@@ -175,13 +175,12 @@ if st.sidebar.button("📤 현재 탑 20 리포트 즉시 발송", use_container
         st.sidebar.error("스트림릿 비밀 금고에 깃허브 토큰이 없습니다.")
     else:
         with st.status("📤 텔레그램 발송 서버를 호출 중입니다...", expanded=True) as status:
-            # run_type을 report_only로 전송하여 발송만 실행
             res = requests.post(url, headers=headers, json={"ref": "main", "inputs": {"run_type": "report_only"}})
             if res.status_code == 204:
                 status.update(label="🚀 현재 저장된 탑 20 리포트를 전송하고 있습니다.", state="running")
                 time.sleep(5)
                 finished = False
-                for _ in range(24): # 분석 없이 발송만 하므로 대기 시간을 2분(24*5초)으로 단축
+                for _ in range(24): 
                     try:
                         r = requests.get(runs_url, headers=headers).json()
                         runs = r.get("workflow_runs", [])
@@ -196,7 +195,6 @@ if st.sidebar.button("📤 현재 탑 20 리포트 즉시 발송", use_container
                     status.update(label="⏳ 발송이 길어지고 있습니다. 잠시 후 텔레그램을 확인해주세요.", state="complete", expanded=False)
             else:
                 status.update(label=f"❌ 서버 호출에 실패했습니다. 에러 코드는 {res.status_code} 입니다.", state="error")
-
 
 st.sidebar.markdown("---")
 
@@ -337,20 +335,27 @@ elif menu == "🤖 시스템 및 알림 설정":
             sys_sheet.append_row(["Key", "Value"])
             sys_sheet.append_row(["AI_ENGINE", "AI 사용 안 함"])
             sys_sheet.append_row(["ACTIVE_PERSONA", "옵션 1 (기본 금융 전문가)"])
+            sys_sheet.append_row(["AI_DELAY_SECONDS", "5"])
         
         config = {str(r.get("Key")): str(r.get("Value")) for r in sys_sheet.get_all_records()}
         current_engine = config.get("AI_ENGINE", "AI 사용 안 함")
         current_persona = config.get("ACTIVE_PERSONA", "옵션 1 (기본 금융 전문가)")
+        current_delay = int(config.get("AI_DELAY_SECONDS", 5))
         
         col_sys1, col_sys2 = st.columns([1, 1])
         with col_sys1:
             st.subheader("⚙️ 구동할 AI 엔진 및 페르소나 선택")
-            st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-            current_delay = int(config.get("AI_DELAY_SECONDS", 5))
-            selected_delay = st.slider("⏱️ AI API 호출 대기 시간 (초)", min_value=1, max_value=20, value=current_delay, help="클로드 등 무료/저가 티어 API의 트래픽 제한(Rate Limit)을 피하기 위해 기사 채점 사이의 휴식 시간을 조절합니다.")
+            st.markdown("<div style='padding: 10px; border: 1px solid #E5E7EB; border-radius: 8px;'>", unsafe_allow_html=True)
+            
+            opts_engine = ["AI 사용 안 함", "무료 Gemini", "무료 Groq", "유료 Claude", "전체"]
+            selected_engine = st.selectbox("엔진 종류를 선택하세요.", opts_engine, index=opts_engine.index(current_engine) if current_engine in opts_engine else 0)
             
             opts_persona = ["옵션 1 (기본 금융 전문가)", "옵션 2 (신규 커스텀)"]
             selected_persona = st.selectbox("적용할 AI 페르소나를 선택하세요.", opts_persona, index=opts_persona.index(current_persona) if current_persona in opts_persona else 0)
+            
+            st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+            selected_delay = st.slider("⏱️ AI API 호출 대기 시간 (초)", min_value=1, max_value=20, value=current_delay, help="클로드 등 무료/저가 티어 API의 트래픽 제한(Rate Limit)을 피하기 위해 기사 채점 사이의 휴식 시간을 조절합니다.")
+            
             st.markdown("</div>", unsafe_allow_html=True)
             
         with col_sys2:
@@ -372,10 +377,10 @@ elif menu == "🤖 시스템 및 알림 설정":
                     sys_sheet.append_row([key, value])
             update_setting("AI_ENGINE", selected_engine)
             update_setting("ACTIVE_PERSONA", selected_persona)
+            update_setting("AI_DELAY_SECONDS", str(selected_delay))
             update_setting("TELEGRAM_GROUP_SEND", "ON" if tg_group_toggle else "OFF")
             update_setting("TELEGRAM_AUTHOR_SEND", "ON" if tg_author_toggle else "OFF")
             update_setting("EXTRA_TELEGRAM_IDS", extra_ids_input)
-            update_setting("AI_DELAY_SECONDS", str(selected_delay))
             st.success("설정이 데이터베이스에 성공적으로 기록되었습니다.")
     except Exception as e: 
         st.error(f"오류가 발생했습니다. 내용은 {e} 입니다.")

@@ -2,7 +2,14 @@ import os, json, gspread, requests
 from oauth2client.service_account import ServiceAccountCredentials
 
 def send_telegram():
-    print("🚀 텔레그램 발송을 시작합니다...")
+    # 💡 깃허브 액션 환경변수를 통해 스케줄 가동 여부 확인
+    is_scheduled = os.environ.get("GITHUB_EVENT_NAME") == "schedule"
+    
+    if is_scheduled:
+        print("⏰ [스케줄 가동] 공식 정기 리포트 발송을 시작합니다.")
+    else:
+        print("🚀 [수동 가동] 관리자 수동 발송 테스트를 시작합니다. (발송 후에도 Sent 상태는 N으로 유지됩니다.)")
+
     BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     GROUP_CHAT_ID = os.environ.get("TELEGRAM_GROUP_CHAT_ID")
     MY_CHAT_ID = os.environ.get("MY_CHAT_ID")
@@ -36,7 +43,6 @@ def send_telegram():
         print("⚠️ 발송 대상 채팅방이 없습니다.")
         return
 
-    # 오직 DB_AI_Report 만 바라봅니다.
     ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
     rows = ai_report_sheet.get_all_values()
     if len(rows) <= 1:
@@ -44,7 +50,6 @@ def send_telegram():
         return
 
     headers = rows[0]
-    # 위치가 바뀌어도 안전하게 찾도록 인덱스 매핑
     col_idx = {h: i for i, h in enumerate(headers)}
     
     unsent_rows = []
@@ -55,14 +60,13 @@ def send_telegram():
         sent_idx = col_idx.get('Sent', 9)
         if len(row) > sent_idx and row[sent_idx] == 'N':
             unsent_rows.append(row)
-            unsent_indices.append(i + 2) # 시트 행 번호는 2부터 시작
+            unsent_indices.append(i + 2)
 
     if not unsent_rows:
         print("조건에 부합하는 발송 대상 기사가 없습니다.")
         return
 
-    # 텔레그램 메시지 구성
-    msg = f"📊 뉴스 자동화 리포트 (AI 평가 검증 완료)\n\n"
+    msg = f"📊 뉴스 자동화 리포트\n\n"
     for i, row in enumerate(unsent_rows[:20]):
         title = row[col_idx.get('Title', 2)]
         link = row[col_idx.get('Link', 3)]
@@ -83,11 +87,13 @@ def send_telegram():
         if res.status_code == 200:
             print(f"✅ {chat_id} 방 발송 완료!")
 
-    # 발송 완료 처리 (Sent 상태를 'Y'로 업데이트)
-    for idx in unsent_indices[:20]:
-        ai_report_sheet.update_cell(idx, col_idx.get('Sent', 9) + 1, 'Y')
-        
-    print("🏁 텔레그램 발송 및 완료 처리가 모두 종료되었습니다.")
+    # 💡 [핵심 수정] 스케줄에 의한 가동일 때만 Sent 값을 'Y'로 업데이트합니다.
+    if is_scheduled:
+        for idx in unsent_indices[:20]:
+            ai_report_sheet.update_cell(idx, col_idx.get('Sent', 9) + 1, 'Y')
+        print("🏁 공식 발송 처리 완료: 해당 기사들은 Sent='Y'로 변경되어 다음 발송에서 제외됩니다.")
+    else:
+        print("🏁 수동 발송 테스트 완료: 기사들의 Sent 상태는 'N'으로 유지되어 다음 스케줄에 정식 포함됩니다.")
 
 if __name__ == "__main__":
     send_telegram()

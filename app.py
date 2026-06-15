@@ -99,7 +99,7 @@ if st.sidebar.button("▶️ 지금 기사 서치 가동", type="primary", use_c
             else: 
                 status.update(label=f"❌ 가동에 실패했습니다. 에러 코드는 {res.status_code} 입니다.", state="error")
 
-# [버튼 2] 재채점 (수집 단계를 건너뛰도록 score_only 신호로 변경 완료)
+# [버튼 2] 재채점
 if st.sidebar.button("🔄 최근 기사 바뀐 룰로 재채점하기", use_container_width=True):
     if "GITHUB_TOKEN" not in st.secrets:
         st.sidebar.error("스트림릿 비밀 금고에 깃허브 토큰이 없습니다.")
@@ -169,15 +169,15 @@ if st.sidebar.button("🔄 최근 기사 바뀐 룰로 재채점하기", use_con
             except Exception as e:
                 status.update(label=f"❌ 오류가 발생했습니다. 내용은 {e} 입니다.", state="error")
 
-# [버튼 3] 신규: 탑 20 즉시 발송
-if st.sidebar.button("📤 현재 탑 20 리포트 즉시 발송", use_container_width=True):
+# [버튼 3] 미발송 리포트 즉시 발송
+if st.sidebar.button("📤 AI 평가 완료 기사 즉시 발송", use_container_width=True):
     if "GITHUB_TOKEN" not in st.secrets:
         st.sidebar.error("스트림릿 비밀 금고에 깃허브 토큰이 없습니다.")
     else:
         with st.status("📤 텔레그램 발송 서버를 호출 중입니다...", expanded=True) as status:
             res = requests.post(url, headers=headers, json={"ref": "main", "inputs": {"run_type": "report_only"}})
             if res.status_code == 204:
-                status.update(label="🚀 현재 저장된 탑 20 리포트를 전송하고 있습니다.", state="running")
+                status.update(label="🚀 발송 대기 중인 AI 평가 리포트를 전송하고 있습니다.", state="running")
                 time.sleep(5)
                 finished = False
                 for _ in range(24): 
@@ -206,19 +206,20 @@ menu = st.sidebar.radio(
 if menu == "📊 종합 상황판":
     st.title("📊 기사 서치 종합 상황판")
     st.markdown("---")
-    st.markdown("#### 최근 분석 완료된 탑 20 기사 목록")
+    st.markdown("#### 최근 AI 평가가 완료된 기사 목록")
     try:
-        top20_sheet = spreadsheet.worksheet("DB_Top20")
-        data = top20_sheet.get_all_records()
+        # DB_Top20 대신 DB_AI_Report 연결
+        ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
+        data = ai_report_sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
             latest_time = df['Execution_Time'].max()
             df_latest = df[df['Execution_Time'] == latest_time].drop(columns=['Execution_Time', 'Sent'], errors='ignore')
             st.dataframe(df_latest, use_container_width=True, hide_index=True, height=750)
         else:
-            st.info("아직 누적된 데이터가 없습니다.")
+            st.info("아직 누적된 AI 평가 데이터가 없습니다.")
     except Exception:
-        st.warning("DB_Top20 시트를 찾을 수 없습니다.")
+        st.warning("DB_AI_Report 시트를 찾을 수 없습니다. 시트 이름이 올바른지 확인해주세요.")
 
 elif menu == "🔑 포함/제외 단어 제어":
     st.title("🔑 키워드 점수 조절 및 제외 설정")
@@ -239,7 +240,7 @@ elif menu == "🔑 포함/제외 단어 제어":
                 with c1: 
                     st.markdown(f"<div style='padding-top: 8px; font-weight: 600; font-size: 16px; color: #1E3A8A;'>{kw}</div>", unsafe_allow_html=True)
                 with c2:
-                    current_w = float(row.get('Weight', row.get('Coefficient', 1.0)))
+                    current_w = float(row.get('Score', row.get('Weight', 1.0)))
                     new_w = st.number_input("점수 입력", min_value=0.0, max_value=10.0, value=current_w, step=1.0, key=f"kw_{idx}", label_visibility="collapsed")
                 updated_kws.append([kw, new_w])
                 
@@ -251,7 +252,7 @@ elif menu == "🔑 포함/제외 단어 제어":
                 if new_kw.strip(): 
                     updated_kws.append([new_kw.strip(), new_w])
                 kw_sheet.clear()
-                kw_sheet.update([["Keyword", "Weight"]] + updated_kws)
+                kw_sheet.update([["Keyword", "Score"]] + updated_kws)
                 st.success("타깃 키워드가 성공적으로 저장되었습니다.")
         except Exception as e: 
             st.error(f"키워드 시트 오류가 발생했습니다. 내용은 {e} 입니다.")
@@ -354,7 +355,7 @@ elif menu == "🤖 시스템 및 알림 설정":
             selected_persona = st.selectbox("적용할 AI 페르소나를 선택하세요.", opts_persona, index=opts_persona.index(current_persona) if current_persona in opts_persona else 0)
             
             st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-            selected_delay = st.slider("⏱️ AI API 호출 대기 시간 (초)", min_value=1, max_value=20, value=current_delay, help="클로드 등 무료/저가 티어 API의 트래픽 제한(Rate Limit)을 피하기 위해 기사 채점 사이의 휴식 시간을 조절합니다.")
+            selected_delay = st.slider("⏱️ AI API 호출 대기 시간 (초)", min_value=1, max_value=20, value=current_delay, help="배치 처리 도입으로 현재는 대기 시간의 영향을 받지 않습니다.")
             
             st.markdown("</div>", unsafe_allow_html=True)
             
@@ -429,11 +430,12 @@ elif menu == "📜 AI 페르소나 및 평가 기준":
 elif menu == "🎯 Project B: 피드백 수집판":
     st.title("🎯 Project B: 뉴스 리포트 피드백 수집판")
     st.markdown("---")
-    st.markdown("##### 최근 선정된 탑 20 기사 목록을 검토하고 취향 피드백을 남겨주세요. 이 데이터는 가중치 자동 강화학습 엔진의 핵심 학습 데이터셋으로 영구 누적됩니다.")
+    st.markdown("##### 최근 선정된 AI 평가 기사 목록을 검토하고 취향 피드백을 남겨주세요. 이 데이터는 가중치 자동 강화학습 엔진의 핵심 학습 데이터셋으로 영구 누적됩니다.")
     
     try:
-        top20_sheet = spreadsheet.worksheet("DB_Top20")
-        data = top20_sheet.get_all_records()
+        # DB_Top20 대신 DB_AI_Report 연결
+        ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
+        data = ai_report_sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
             latest_time = df['Execution_Time'].max()
@@ -497,6 +499,6 @@ elif menu == "🎯 Project B: 피드백 수집판":
                     except Exception as e:
                         st.error(f"데이터베이스 기록에 실패했습니다. 에러 내용은 {e} 입니다.")
         else:
-            st.info("피드백을 진행할 탑 20 기사 목록 정보가 존재하지 않습니다.")
+            st.info("피드백을 진행할 AI 평가 기사 목록 정보가 존재하지 않습니다.")
     except Exception as e:
         st.warning(f"시트 로드 오류가 발생했습니다. 내용은 {e} 입니다.")

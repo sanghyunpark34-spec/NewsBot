@@ -345,9 +345,9 @@ elif menu == "🤖 시스템 및 알림 설정":
         col_sys1, col_sys2 = st.columns([1, 1])
         with col_sys1:
             st.subheader("⚙️ 구동할 AI 엔진 및 페르소나 선택")
-            st.markdown("<div style='padding: 10px; border: 1px solid #E5E7EB; border-radius: 8px;'>", unsafe_allow_html=True)
-            opts_engine = ["AI 사용 안 함", "무료 Gemini", "무료 Groq", "유료 Claude", "전체"]
-            selected_engine = st.selectbox("엔진 종류를 선택하세요.", opts_engine, index=opts_engine.index(current_engine) if current_engine in opts_engine else 0)
+            st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
+            current_delay = int(config.get("AI_DELAY_SECONDS", 5))
+            selected_delay = st.slider("⏱️ AI API 호출 대기 시간 (초)", min_value=1, max_value=20, value=current_delay, help="클로드 등 무료/저가 티어 API의 트래픽 제한(Rate Limit)을 피하기 위해 기사 채점 사이의 휴식 시간을 조절합니다.")
             
             opts_persona = ["옵션 1 (기본 금융 전문가)", "옵션 2 (신규 커스텀)"]
             selected_persona = st.selectbox("적용할 AI 페르소나를 선택하세요.", opts_persona, index=opts_persona.index(current_persona) if current_persona in opts_persona else 0)
@@ -375,6 +375,7 @@ elif menu == "🤖 시스템 및 알림 설정":
             update_setting("TELEGRAM_GROUP_SEND", "ON" if tg_group_toggle else "OFF")
             update_setting("TELEGRAM_AUTHOR_SEND", "ON" if tg_author_toggle else "OFF")
             update_setting("EXTRA_TELEGRAM_IDS", extra_ids_input)
+            update_setting("AI_DELAY_SECONDS", str(selected_delay))
             st.success("설정이 데이터베이스에 성공적으로 기록되었습니다.")
     except Exception as e: 
         st.error(f"오류가 발생했습니다. 내용은 {e} 입니다.")

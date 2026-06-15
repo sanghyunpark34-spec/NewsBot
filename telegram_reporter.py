@@ -1,89 +1,93 @@
-import os, json, gspread, requests, time
+import os, json, gspread, requests
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime, timedelta
-import pytz
 
-KST = pytz.timezone('Asia/Seoul')
+def send_telegram():
+    print("🚀 텔레그램 발송을 시작합니다...")
+    BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+    GROUP_CHAT_ID = os.environ.get("TELEGRAM_GROUP_CHAT_ID")
+    MY_CHAT_ID = os.environ.get("MY_CHAT_ID")
 
-def send_telegram_message(chat_id, bot_token, text):
-    if not chat_id or not bot_token: return False
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    try:
-        res = requests.post(url, json={"chat_id": chat_id, "text": text[:4000], "disable_web_page_preview": True})
-        res.raise_for_status()
-        return True
-    except Exception as e:
-        print(f"발송 중 오류가 발생했습니다. 내용은 {e} 입니다.")
-        return False
+    if not BOT_TOKEN:
+        print("⚠️ 텔레그램 봇 토큰이 없습니다.")
+        return
 
-def run_reporter():
-    creds_json = os.environ.get("GOOGLE_SHEETS_CREDENTIALS")
-    if not creds_json: return
     creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        json.loads(creds_json), ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        json.loads(os.environ["GOOGLE_SHEETS_CREDENTIALS"]),
+        ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     )
     spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
-    sys_data = spreadsheet.worksheet("Config_System").get_all_records()
-    config = {str(r.get("Key")): str(r.get("Value")) for r in sys_data}
+    try:
+        sys_sheet = spreadsheet.worksheet("Config_System")
+        config = {str(r.get("Key")): str(r.get("Value")) for r in sys_sheet.get_all_records()}
+        send_group = config.get("TELEGRAM_GROUP_SEND", "OFF") == "ON"
+        send_author = config.get("TELEGRAM_AUTHOR_SEND", "OFF") == "ON"
+        extra_ids = [x.strip() for x in config.get("EXTRA_TELEGRAM_IDS", "").split(",") if x.strip()]
+    except:
+        send_group, send_author, extra_ids = False, False, []
+
+    target_chats = []
+    if send_group and GROUP_CHAT_ID: target_chats.append(GROUP_CHAT_ID)
+    if send_author and MY_CHAT_ID: target_chats.append(MY_CHAT_ID)
+    target_chats.extend(extra_ids)
+    target_chats = list(set(target_chats))
+
+    if not target_chats:
+        print("⚠️ 발송 대상 채팅방이 없습니다.")
+        return
+
+    # 오직 DB_AI_Report 만 바라봅니다.
+    ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
+    rows = ai_report_sheet.get_all_values()
+    if len(rows) <= 1:
+        print("조건에 부합하는 발송 대상 기사가 없습니다.")
+        return
+
+    headers = rows[0]
+    # 위치가 바뀌어도 안전하게 찾도록 인덱스 매핑
+    col_idx = {h: i for i, h in enumerate(headers)}
     
-    tg_group_send = config.get("TELEGRAM_GROUP_SEND", "OFF")
-    tg_author_send = config.get("TELEGRAM_AUTHOR_SEND", "OFF")
-    extra_ids = [eid.strip() for eid in config.get("EXTRA_TELEGRAM_IDS", "").split(',') if eid.strip()]
-
-    if tg_group_send != "ON" and tg_author_send != "ON" and not extra_ids:
-        return print("수신처가 지정되어 있지 않으므로 메세지는 발송되지 않습니다.")
-
-    is_schedule = (os.environ.get("GITHUB_EVENT_NAME") == "schedule")
+    unsent_rows = []
+    unsent_indices = []
     
-    now_kst = datetime.now(KST)
-    lookback_days = 3.5 if now_kst.weekday() in [0, 5, 6] else 1.5
-    cutoff_date = (now_kst - timedelta(days=lookback_days)).replace(tzinfo=None)
+    # Sent 값이 'N'인 기사만 골라냅니다.
+    for i, row in enumerate(rows[1:]):
+        sent_idx = col_idx.get('Sent', 9)
+        if len(row) > sent_idx and row[sent_idx] == 'N':
+            unsent_rows.append(row)
+            unsent_indices.append(i + 2) # 시트 행 번호는 2부터 시작
 
-    archive_sheet = spreadsheet.worksheet("DB_Archive")
-    all_records = archive_sheet.get_all_values()
-    
-    valid_articles = []
-    rows_to_mark_sent = [] 
+    if not unsent_rows:
+        print("조건에 부합하는 발송 대상 기사가 없습니다.")
+        return
 
-    for idx, r in enumerate(all_records[1:], start=2):
-        if len(r) < 9: continue
+    # 텔레그램 메시지 구성
+    msg = f"📊 뉴스 자동화 리포트 (AI 평가 검증 완료)\n\n"
+    for i, row in enumerate(unsent_rows[:20]):
+        title = row[col_idx.get('Title', 2)]
+        link = row[col_idx.get('Link', 3)]
+        total_score = row[col_idx.get('Total_Score', 8)]
+        ai_score = row[col_idx.get('AI_Score', 7)]
+        kws = row[col_idx.get('Matched_Keywords', 5)]
         
-        try:
-            pub_date = datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S")
-            if pub_date < cutoff_date: continue
-        except Exception: continue
-            
-        if is_schedule and str(r[8]).strip().upper() == 'Y':
-            continue
-            
-        valid_articles.append((idx, r))
+        msg += f"{i+1}. {title}\n"
+        msg += f"🔗 {link}\n"
+        msg += f"⭐️ 총점: {total_score}점 (AI 상세: {ai_score})\n"
+        msg += f"🏷️ {kws}\n\n"
 
-    if not valid_articles:
-        return print("조건에 부합하는 발송 대상 기사가 없습니다.")
+    for chat_id in target_chats:
+        res = requests.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": msg, "disable_web_page_preview": True}
+        )
+        if res.status_code == 200:
+            print(f"✅ {chat_id} 방 발송 완료!")
 
-    valid_articles.sort(key=lambda x: float(x[1][7]) if str(x[1][7]).replace('.', '', 1).isdigit() else 0.0, reverse=True)
-    top20_articles = valid_articles[:20]
-
-    msg = f"📊 뉴스 자동화 리포트 ({now_kst.strftime('%Y-%m-%d %H:%M')})\n\n"
-    for rank, (sheet_row_idx, row) in enumerate(top20_articles, 1):
-        msg += f"{rank}. {row[1]}\n🔗 {row[2]}\n⭐ 총점: {row[7]}점 (AI 세부 평가: {row[6]})\n🏷️ {row[4]}\n\n"
-        if is_schedule: rows_to_mark_sent.append(sheet_row_idx)
-
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    group_chat_id = os.environ.get("TELEGRAM_GROUP_CHAT_ID", "")
-    my_chat_id = os.environ.get("MY_CHAT_ID", "") 
-
-    sent_success = False
-    if tg_group_send == "ON": sent_success = send_telegram_message(group_chat_id, bot_token, msg) or sent_success
-    if tg_author_send == "ON": sent_success = send_telegram_message(my_chat_id, bot_token, msg) or sent_success
-    for eid in extra_ids: sent_success = send_telegram_message(eid, bot_token, msg) or sent_success
-
-    if is_schedule and sent_success and rows_to_mark_sent:
-        print(f"스케줄 발송 성공으로 {len(rows_to_mark_sent)}개의 기사를 발송 완료 처리합니다.")
-        for row_idx in rows_to_mark_sent:
-            archive_sheet.update_cell(row_idx, 9, 'Y')
-            time.sleep(1) 
+    # 발송 완료 처리 (Sent 상태를 'Y'로 업데이트)
+    for idx in unsent_indices[:20]:
+        ai_report_sheet.update_cell(idx, col_idx.get('Sent', 9) + 1, 'Y')
+        
+    print("🏁 텔레그램 발송 및 완료 처리가 모두 종료되었습니다.")
 
 if __name__ == "__main__":
-    run_reporter()
+    send_telegram()

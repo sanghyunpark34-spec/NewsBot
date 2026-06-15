@@ -1,5 +1,4 @@
 import os, json, gspread
-import time
 from datetime import datetime
 import pytz
 from oauth2client.service_account import ServiceAccountCredentials
@@ -51,15 +50,15 @@ EXECUTIVE_SCREENING_MANDATE = """
 - 유찰, 무산, 일정 지연, 당국 제동(심사 중단 등) 역시 진전과 동급의 중대한 뉴스 가치로 취급하여 고점 부여.
 
 2. 카테고리별 세부 선별 전략 패턴
-- A. 한화 관련: 실적 해설기사보다 숫자+컨센 대비 공시 팩트 중심 평가. 신용등급 변동, 금감원 제재/소송, 밸류업 계획 필수 포함. 오너가/승계/지분 이동/계열사 분할합병은 비금융 계열사(필리조선소, 오스탈, 한화에너지 등)라도 중대 사항으로 취급. 단순 상품/서비스 홍보는 제외.
-- B. 경쟁사 동향: 상품 출시보다 '인수 의지 및 M&A 검토 보도', '자본 거래', '채 채널 전략', '자본배분 철학 분석(예: 메리츠 모델)'에 집중 가점.
-- C. PEF 생태계: 보험 상품 뉴스보다 압도적인 우선순위 부여. PEF의 금융사 소유 구조 문제(건전성 하락, 적기시정조치), GP-LP 다이내믹스(출자사업, 콘티뉴에이션 펀드, 청산), 딜 인프라(인수금융 금리, W&I보험, MAC 조항 판례, 드래그얼롱 분쟁)를 심도 있게 다룬 기사 선호.
-- D. 규제/감독 인텔리전스: 금융당국 인사 정보(국장급 인사 기수/출신 포함), K-ICS 규제(할인율, 해약환급금준비금, 자본성증권 발행), 상법 개정(이사 충실의무, 자사주 소각), 당국 심사 동향(대주주 적격성, 기업결합 금지)은 상시 최상위 순위로 평가.
-- E. 해외 및 디지털자산: 일본 생/손보사의 크로스보더 M&A 등 글로벌 벤치마크 딜 고점 부여. STO/가상자산은 기술 뉴스가 아닌 대형 금융그룹의 지분 취득 및 제휴 딜 관점에서만 가점. 지배구조 분쟁/행동주의(고려아연, 얼라인 등)의 지분 구조와 법적 논리 해설 선호.
+- A. 한화 관련: 실적 해설기사보다 숫자+컨센 대비 공시 팩트 중심 평가. 신용등급 변동, 금감원 제재/소송, 밸류업 계획 필수 포함. 오너가/승계/지분 이동/계열사 분할합병은 비금융 계열사라도 중대 사항으로 취급.
+- B. 경쟁사 동향: 상품 출시보다 '인수 의지 및 M&A 검토 보도', '자본 거래', '채널 전략', '자본배분 철학 분석'에 집중 가점.
+- C. PEF 생태계: 보험 상품 뉴스보다 압도적인 우선순위 부여. PEF의 금융사 소유 구조 문제, GP-LP 다이내믹스, 딜 인프라를 심도 있게 다룬 기사 선호.
+- D. 규제/감독 인텔리전스: 금융당국 인사 정보, K-ICS 규제, 상법 개정, 당국 심사 동향은 상시 최상위 순위로 평가.
+- E. 해외 및 디지털자산: 일본 생/손보사의 크로스보더 M&A 등 글로벌 벤치마크 딜 고점 부여. STO/가상자산은 대형 금융그룹의 지분 취득 및 제휴 딜 관점에서만 가점. 지배구조 분쟁의 지분 구조와 법적 논리 해설 선호.
 
 3. 기사 품질 신호 기반 필터링
-- 가점 매체 및 표현: [단독], "투자은행(IB) 업계에 따르면", 주요 IB 전문매체(인베스트조선, 딜사이트, 더벨, 마켓인사이트, 연합인포맥스, 블로터)의 심층 구조 분석 기사.
-- 감점 및 필터링 대상: 상품 광고, CSR(사회공헌), 스포츠/행사, 단순 시황성 주가 등락, 단순 전망 일반론 기사는 예외 없이 과감하게 하위권으로 배제.
+- 가점 매체 및 표현: [단독], "투자은행(IB) 업계에 따르면", 주요 IB 전문매체의 심층 구조 분석 기사.
+- 감점 및 필터링 대상: 상품 광고, CSR, 스포츠/행사, 단순 시황성 주가 등락, 단순 전망 일반론 기사는 배제.
 """
 
 def get_persona_and_rubric():
@@ -75,129 +74,126 @@ def get_persona_and_rubric():
     except: pass
     return default_persona, rubric_text
 
-# ... (상단 설정 부분은 동일합니다)
-
 def process_ai_score():
     print("🤖 프롬프트 고도화 및 본문 요약문 분석 가동...")
-    stage_sheet = spreadsheet.worksheet("DB_Stage")
-    archive_sheet = spreadsheet.worksheet("DB_Archive")
-    ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
-    
-    rows = stage_sheet.get_all_values()
-    if len(rows) <= 1: return
-
-    # 시스템 설정 및 프롬프트 로드
-    sys_sheet = spreadsheet.worksheet("Config_System")
-    config = {str(r.get("Key")): str(r.get("Value")) for r in sys_sheet.get_all_records()}
-    ai_weight = float(config.get("AI_WEIGHT_PERCENT", 55)) / 100.0
-    base_weight = 1.0 - ai_weight
-    
-    base_persona, rubric_prompt = get_persona_and_rubric()
-    # 💡 강화된 스크리닝 지시문 결합
-    combined_system_prompt = f"{base_persona}\n\n[핵심 스크리닝 명세]\n{EXECUTIVE_SCREENING_MANDATE}"
-    
-    target_rows = rows[1:31]
-    remaining_rows = rows[31:]
-    
-    # 💡 [핵심 변경] AI에게 '요약문'까지 넘겨주도록 프롬프트 구조 변경
-    batch_prompt = f"{rubric_prompt}\n\n다음 {len(target_rows)}개 기사의 제목과 요약 내용을 분석하여 0~100점 사이로 채점해줘.\n형식은 JSON: {{'1': 점수, '2': 점수, ...}}\n\n기사 데이터:\n"
-    for i, row in enumerate(target_rows):
-        # row[1]은 제목, row[6]은 analyzer_base에서 넘어온 요약문(desc)입니다.
-        batch_prompt += f"{i+1}. 제목: {row[1]} | 요약: {row[6]}\n"
-
-    # ... (엔진 호출 및 JSON 파싱 로직은 동일)
-
-    # 💡 데이터 저장 시 요약문(row[6]) 유지 및 정규화
-    archive_rows = []
-    ai_report_rows = []
-    now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-    
-    for i, row in enumerate(target_rows):
-        idx_str = str(i+1)
-        base_score = float(row[5])
-        details = scores_map.get(idx_str, [])
-        # 가중치 연산... (동일)
+    try:
+        stage_sheet = spreadsheet.worksheet("DB_Stage")
+        archive_sheet = spreadsheet.worksheet("DB_Archive")
         
-        # 💡 [필수] 아카이브와 AI 리포트에 요약문을 포함하여 저장
-        archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
-        ai_report_rows.append([now_str, row[0], row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
+        try:
+            ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
+        except:
+            ai_report_sheet = spreadsheet.add_worksheet(title="DB_AI_Report", rows="1000", cols="10")
+            ai_report_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Matched_Keywords", "Base_Score", "AI_Score", "Total_Score", "Sent"])
+        
+        rows = stage_sheet.get_all_values()
+        if len(rows) <= 1: 
+            print("⚠️ DB_Stage에 분석할 기사가 없습니다.")
+            return
 
-    # 나머지 코드도 동일하게 유지...
-    scores_map = {}
-    engines_to_run = []
-    
-    if "Gemini" in engine_choice or "전체" in engine_choice: engines_to_run.append("Gemini")
-    if "Groq" in engine_choice or "전체" in engine_choice: engines_to_run.append("Groq")
-    if "Claude" in engine_choice or "전체" in engine_choice: engines_to_run.append("Claude")
+        # 💡 [핵심 보완] 변수 누락 없이 안전하게 로드
+        sys_sheet = spreadsheet.worksheet("Config_System")
+        config = {str(r.get("Key")): str(r.get("Value")) for r in sys_sheet.get_all_records()}
+        
+        engine_choice = config.get("AI_ENGINE", "유료 Claude")
+        try:
+            ai_weight_pct = float(config.get("AI_WEIGHT_PERCENT", 55))
+        except:
+            ai_weight_pct = 55.0
+            
+        ai_weight = ai_weight_pct / 100.0
+        base_weight = 1.0 - ai_weight
+        
+        base_persona, rubric_prompt = get_persona_and_rubric()
+        combined_system_prompt = f"{base_persona}\n\n[핵심 스크리닝 명세]\n{EXECUTIVE_SCREENING_MANDATE}"
+        
+        target_rows = rows[1:31]
+        remaining_rows = rows[31:]
+        
+        batch_prompt = f"{rubric_prompt}\n\n다음 {len(target_rows)}개 기사의 제목과 요약 내용을 분석하여 0~100점 사이로 채점해줘.\n형식은 JSON: {{'1': 점수, '2': 점수, ...}}\n\n기사 데이터:\n"
+        for i, row in enumerate(target_rows):
+            # 요약문(Desc) 데이터가 빈 칸일 경우를 대비한 안전 장치
+            desc = row[6] if len(row) > 6 else ""
+            batch_prompt += f"{i+1}. 제목: {row[1]} | 요약: {desc}\n"
 
-    if engines_to_run and engine_choice != "AI 사용 안 함":
-        for model_name in engines_to_run:
-            try:
-                res_json = ""
-                if model_name == "Gemini" and genai:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    res = model.generate_content(f"{combined_system_prompt}\n\n{batch_prompt}")
-                    res_json = res.text
-                elif model_name == "Groq" and groq_client:
-                    res = groq_client.chat.completions.create(
-                        model="llama3-70b-8192", 
-                        messages=[{"role": "system", "content": combined_system_prompt}, {"role": "user", "content": batch_prompt}]
-                    )
-                    res_json = res.choices[0].message.content
-                elif model_name == "Claude" and claude_client:
-                    msg = claude_client.messages.create(
-                        model="claude-haiku-4-5-20251001", 
-                        max_tokens=2500, 
-                        system=combined_system_prompt, 
-                        messages=[{"role": "user", "content": batch_prompt}]
-                    )
-                    res_json = msg.content[0].text
-                
-                if res_json:
-                    start, end = res_json.find('{'), res_json.rfind('}')
-                    if start != -1 and end != -1:
-                        data = json.loads(res_json[start:end+1])
-                        for k, v in data.items():
-                            if k not in scores_map: scores_map[k] = []
-                            scores_map[k].append((model_name, int(v)))
-                        print(f"✅ {model_name} 핵심 스크리닝 연산 성공!")
-            except Exception as e:
-                print(f"❌ {model_name} 엔진 분석 지연 스킵: {e}")
+        scores_map = {}
+        engines_to_run = []
+        
+        if "Gemini" in engine_choice or "전체" in engine_choice: engines_to_run.append("Gemini")
+        if "Groq" in engine_choice or "전체" in engine_choice: engines_to_run.append("Groq")
+        if "Claude" in engine_choice or "전체" in engine_choice: engines_to_run.append("Claude")
 
-    archive_rows = []
-    ai_report_rows = []
-    now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-    
-    # 1. AI 평가를 거친 30개 확장 그룹 데이터 인덱싱 및 가중치 연산
-    for i, row in enumerate(target_rows):
-        idx_str = str(i+1)
-        base_score = float(row[5])
-        details = scores_map.get(idx_str, [])
-        if details:
-            avg = sum([d[1] for d in details]) / len(details)
-            detail_str = f"{round(avg, 1)} ({', '.join([f'{d[0]} {d[1]}' for d in details])})"
-            total = round((base_score * base_weight) + (avg * ai_weight), 2)
+        if not engines_to_run or engine_choice == "AI 사용 안 함":
+            print("⚠️ AI 엔진이 선택되지 않았습니다.")
         else:
-            detail_str, total = "0", base_score
-        
-        archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
-        # 사장님 지정 10열 규격 완벽 일치 매핑
-        ai_report_rows.append([now_str, row[0], row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
+            for model_name in engines_to_run:
+                print(f"🚀 {model_name} 핵심 스크리닝 연산 요청 중...")
+                try:
+                    res_json = ""
+                    if model_name == "Gemini" and genai:
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        res = model.generate_content(f"{combined_system_prompt}\n\n{batch_prompt}")
+                        res_json = res.text
+                    elif model_name == "Groq" and groq_client:
+                        res = groq_client.chat.completions.create(
+                            model="llama3-70b-8192", 
+                            messages=[{"role": "system", "content": combined_system_prompt}, {"role": "user", "content": batch_prompt}]
+                        )
+                        res_json = res.choices[0].message.content
+                    elif model_name == "Claude" and claude_client:
+                        msg = claude_client.messages.create(
+                            model="claude-haiku-4-5-20251001", 
+                            max_tokens=2500, 
+                            system=combined_system_prompt, 
+                            messages=[{"role": "user", "content": batch_prompt}]
+                        )
+                        res_json = msg.content[0].text
+                    
+                    if res_json:
+                        start, end = res_json.find('{'), res_json.rfind('}')
+                        if start != -1 and end != -1:
+                            data = json.loads(res_json[start:end+1])
+                            for k, v in data.items():
+                                if k not in scores_map: scores_map[k] = []
+                                scores_map[k].append((model_name, int(v)))
+                            print(f"✅ {model_name} 핵심 스크리닝 연산 성공!")
+                except Exception as e:
+                    print(f"❌ {model_name} 엔진 분석 지연 스킵: {e}")
 
-    # 2. 31등 이하 그룹 데이터 이관 (오답노트 보존용)
-    for row in remaining_rows:
-        base_score = float(row[5])
-        archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, "AI 미평가 (순위 밖)", base_score, 'N'])
-
-    if archive_rows:
-        archive_sheet.append_rows(archive_rows)
+        archive_rows = []
+        ai_report_rows = []
+        now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
         
-    if ai_report_rows:
-        ai_report_rows.sort(key=lambda x: float(x[8]), reverse=True) # Total_Score 기준 정렬
-        ai_report_sheet.append_rows(ai_report_rows)
-        print(f"🎯 누적 공유 자산이 적용된 최상위 {len(ai_report_rows)}개 기사가 DB_AI_Report에 이관되었습니다.")
-    
-    stage_sheet.resize(rows=1)
+        for i, row in enumerate(target_rows):
+            idx_str = str(i+1)
+            base_score = float(row[5])
+            details = scores_map.get(idx_str, [])
+            if details:
+                avg = sum([d[1] for d in details]) / len(details)
+                detail_str = f"{round(avg, 1)} ({', '.join([f'{d[0]} {d[1]}' for d in details])})"
+                total = round((base_score * base_weight) + (avg * ai_weight), 2)
+            else:
+                detail_str, total = "0", base_score
+            
+            archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
+            ai_report_rows.append([now_str, row[0], row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
+
+        for row in remaining_rows:
+            base_score = float(row[5])
+            archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, "AI 미평가 (순위 밖)", base_score, 'N'])
+
+        if archive_rows:
+            archive_sheet.append_rows(archive_rows)
+            
+        if ai_report_rows:
+            ai_report_rows.sort(key=lambda x: float(x[8]), reverse=True) 
+            ai_report_sheet.append_rows(ai_report_rows)
+            print(f"🎯 누적 공유 자산이 적용된 최상위 {len(ai_report_rows)}개 기사가 DB_AI_Report에 이관되었습니다.")
+        
+        stage_sheet.resize(rows=1)
+        
+    except Exception as e:
+        print(f"❌ 프로세스 실행 중 치명적 에러 발생: {e}")
 
 if __name__ == "__main__":
     process_ai_score()

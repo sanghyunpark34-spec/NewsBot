@@ -198,9 +198,10 @@ if st.sidebar.button("📤 AI 평가 완료 기사 즉시 발송", use_container
 
 st.sidebar.markdown("---")
 
+# 💡 메뉴 구조 개편 및 통합 완료
 menu = st.sidebar.radio(
     "세부 메뉴를 선택하세요",
-    ["📊 종합 상황판", "🔑 포함/제외 단어 제어", "📡 타깃 매체 제어", "🤖 시스템 및 알림 설정", "📜 AI 페르소나 및 평가 기준", "🎯 Project B: 피드백 수집판"]
+    ["📊 종합 상황판", "🔑 포함/제외 단어 제어", "📡 타깃 매체 제어", "📱 알림 및 수신처 설정", "🤖 AI 통합 설정", "🎯 Project B: 피드백 수집판"]
 )
 
 if menu == "📊 종합 상황판":
@@ -208,7 +209,6 @@ if menu == "📊 종합 상황판":
     st.markdown("---")
     st.markdown("#### 최근 AI 평가가 완료된 기사 목록")
     try:
-        # DB_Top20 대신 DB_AI_Report 연결
         ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
         data = ai_report_sheet.get_all_records()
         if data:
@@ -325,180 +325,57 @@ elif menu == "📡 타깃 매체 제어":
     except Exception as e: 
         st.error(f"매체 시트 오류가 발생했습니다. 내용은 {e} 입니다.")
 
-elif menu == "🤖 시스템 및 알림 설정":
-    st.title("🤖 시스템 및 텔레그램 설정")
+# 💡 [명칭 개편 완료] 알림 및 수신처만 단독 분리
+elif menu == "📱 알림 및 수신처 설정":
+    st.title("📱 알림 및 수신처 제어 센터")
     st.markdown("---")
     try:
-        try: 
-            sys_sheet = spreadsheet.worksheet("Config_System")
-        except Exception: 
-            sys_sheet = spreadsheet.add_worksheet(title="Config_System", rows="10", cols="2")
-            sys_sheet.append_row(["Key", "Value"])
-            sys_sheet.append_row(["AI_ENGINE", "AI 사용 안 함"])
-            sys_sheet.append_row(["ACTIVE_PERSONA", "옵션 1 (기본 금융 전문가)"])
-            sys_sheet.append_row(["AI_DELAY_SECONDS", "5"])
-        
+        sys_sheet = spreadsheet.worksheet("Config_System")
         config = {str(r.get("Key")): str(r.get("Value")) for r in sys_sheet.get_all_records()}
-        current_engine = config.get("AI_ENGINE", "AI 사용 안 함")
-        current_persona = config.get("ACTIVE_PERSONA", "옵션 1 (기본 금융 전문가)")
-        current_delay = int(config.get("AI_DELAY_SECONDS", 5))
         
-        col_sys1, col_sys2 = st.columns([1, 1])
-        with col_sys1:
-            st.subheader("⚙️ 구동할 AI 엔진 및 페르소나 선택")
-            st.markdown("<div style='padding: 10px; border: 1px solid #E5E7EB; border-radius: 8px;'>", unsafe_allow_html=True)
-            
-            opts_engine = ["AI 사용 안 함", "무료 Gemini", "무료 Groq", "유료 Claude", "전체"]
-            selected_engine = st.selectbox("엔진 종류를 선택하세요.", opts_engine, index=opts_engine.index(current_engine) if current_engine in opts_engine else 0)
-            
-            opts_persona = ["옵션 1 (기본 금융 전문가)", "옵션 2 (신규 커스텀)"]
-            selected_persona = st.selectbox("적용할 AI 페르소나를 선택하세요.", opts_persona, index=opts_persona.index(current_persona) if current_persona in opts_persona else 0)
-            
-            st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-            selected_delay = st.slider("⏱️ AI API 호출 대기 시간 (초)", min_value=1, max_value=20, value=current_delay, help="배치 처리 도입으로 현재는 대기 시간의 영향을 받지 않습니다.")
-            
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-        with col_sys2:
-            st.subheader("📱 텔레그램 발송 제어")
-            st.markdown("<div style='padding: 10px; border: 1px solid #E5E7EB; border-radius: 8px;'>", unsafe_allow_html=True)
-            tg_group_toggle = st.toggle("📢 부서 단톡방 전송 허용", value=(config.get("TELEGRAM_GROUP_SEND") == "ON"))
-            st.markdown("<hr style='margin: 10px 0;'>", unsafe_allow_html=True)
-            tg_author_toggle = st.toggle("👤 작성자 개인 수신 허용", value=(config.get("TELEGRAM_AUTHOR_SEND") == "ON"))
-            extra_ids_input = st.text_input("➕ 추가 수신자 아이디를 쉼표로 구분하여 입력하세요.", value=config.get("EXTRA_TELEGRAM_IDS", ""), placeholder="1234567, 7654321 처럼 입력하세요.")
-            st.markdown("</div>", unsafe_allow_html=True)
+        st.subheader("📱 텔레그램 발송 제어")
+        st.markdown("<div style='padding: 15px; border: 1px solid #E5E7EB; border-radius: 8px; background-color: #F9FAFB;'>", unsafe_allow_html=True)
+        tg_group_toggle = st.toggle("📢 부서 단톡방 전송 허용", value=(config.get("TELEGRAM_GROUP_SEND") == "ON"))
+        st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+        tg_author_toggle = st.toggle("👤 작성자 개인 수신 허용", value=(config.get("TELEGRAM_AUTHOR_SEND") == "ON"))
+        extra_ids_input = st.text_input("➕ 추가 수신자 아이디를 쉼표로 구분하여 입력하세요.", value=config.get("EXTRA_TELEGRAM_IDS", ""), placeholder="1234567, 7654321 처럼 입력하세요.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 시스템 및 알림 설정 모두 저장", type="primary", use_container_width=True):
+        if st.button("💾 알림 및 수신처 설정 저장", type="primary", use_container_width=True):
             def update_setting(key, value):
                 try: 
                     cell = sys_sheet.find(key)
                     sys_sheet.update_cell(cell.row, cell.col + 1, value)
                 except Exception: 
                     sys_sheet.append_row([key, value])
-            update_setting("AI_ENGINE", selected_engine)
-            update_setting("ACTIVE_PERSONA", selected_persona)
-            update_setting("AI_DELAY_SECONDS", str(selected_delay))
             update_setting("TELEGRAM_GROUP_SEND", "ON" if tg_group_toggle else "OFF")
             update_setting("TELEGRAM_AUTHOR_SEND", "ON" if tg_author_toggle else "OFF")
             update_setting("EXTRA_TELEGRAM_IDS", extra_ids_input)
-            st.success("설정이 데이터베이스에 성공적으로 기록되었습니다.")
+            st.success("수신처 설정이 데이터베이스에 기록되었습니다.")
     except Exception as e: 
-        st.error(f"오류가 발생했습니다. 내용은 {e} 입니다.")
+        st.error(f"오류가 발생했습니다: {e}")
 
-elif menu == "📜 AI 페르소나 및 평가 기준":
-    st.title("📜 AI 페르소나 및 평가 기준")
+# 💡 [신규 메뉴 통합] 모든 AI 엔진, 대기시간, 점수 가중치, 프롬프트, 루브릭을 통합 제어
+elif menu == "🤖 AI 통합 설정":
+    st.title("🤖 AI 엔진 및 평가 매커니즘 통합 설정")
     st.markdown("---")
-    
     try:
         sys_sheet = spreadsheet.worksheet("Config_System")
         config = {str(r.get("Key")): str(r.get("Value")) for r in sys_sheet.get_all_records()}
         
-        st.subheader("1. AI 페르소나 프롬프트 설정")
-        st.write("시스템 설정에서 선택할 수 있는 두 가지 페르소나의 구체적인 지시문을 각각 작성해주세요.")
+        current_engine = config.get("AI_ENGINE", "유료 Claude")
+        current_persona = config.get("ACTIVE_PERSONA", "옵션 1 (기본 금융 전문가)")
+        current_delay = int(config.get("AI_DELAY_SECONDS", 5))
+        # 💡 신규 가중치 파라미터 로드 (기본값 55%)
+        current_ai_weight = int(config.get("AI_WEIGHT_PERCENT", 55))
         
-        col_p1, col_p2 = st.columns(2)
-        with col_p1:
-            p1_text = st.text_area("옵션 1 지시문 (기본 금융 전문가)", value=config.get("PERSONA_1", "당신은 냉철한 금융 전문가입니다."), height=150)
-        with col_p2:
-            p2_text = st.text_area("옵션 2 지시문 (신규 커스텀)", value=config.get("PERSONA_2", "당신은 트렌드에 민감한 기술 전문 투자자입니다."), height=150)
+        col_sys1, col_sys2 = st.columns([1, 1])
+        with col_sys1:
+            st.subheader("⚙️ AI 구동 코어 설정")
+            st.markdown("<div style='padding: 15px; border: 1px solid #E5E7EB; border-radius: 8px; background-color: #F9FAFB;'>", unsafe_allow_html=True)
+            opts_engine = ["AI 사용 안 함", "무료 Gemini", "무료 Groq", "유료 Claude", "전체"]
+            selected_engine = st.selectbox("엔진 종류를 선택하세요.", opts_engine, index=opts_engine.index(current_engine) if current_engine in opts_engine else 3)
             
-        if st.button("💾 페르소나 지시문 저장", type="primary"):
-            def update_sys(key, val):
-                try: 
-                    cell = sys_sheet.find(key)
-                    sys_sheet.update_cell(cell.row, cell.col + 1, val)
-                except Exception: 
-                    sys_sheet.append_row([key, val])
-            update_sys("PERSONA_1", p1_text)
-            update_sys("PERSONA_2", p2_text)
-            st.success("페르소나 지시문이 성공적으로 저장되었습니다.")
-            
-        st.markdown("<br><hr>", unsafe_allow_html=True)
-        st.subheader("2. 세부 평가 기준 (Rubric) 설정")
-        
-        rubric_sheet = spreadsheet.worksheet("Config_Rubric")
-        edited_df = st.data_editor(pd.DataFrame(rubric_sheet.get_all_records()), num_rows="dynamic", use_container_width=True, height=400)
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 평가 기준 저장", type="primary", use_container_width=True):
-            rubric_sheet.clear()
-            rubric_sheet.update([edited_df.columns.values.tolist()] + edited_df.values.tolist())
-            st.success("평가 기준 저장을 완료했습니다.")
-    except Exception as e: 
-        st.error(f"시트 오류가 발생했습니다. 내용은 {e} 입니다.")
-
-elif menu == "🎯 Project B: 피드백 수집판":
-    st.title("🎯 Project B: 뉴스 리포트 피드백 수집판")
-    st.markdown("---")
-    st.markdown("##### 최근 선정된 AI 평가 기사 목록을 검토하고 취향 피드백을 남겨주세요. 이 데이터는 가중치 자동 강화학습 엔진의 핵심 학습 데이터셋으로 영구 누적됩니다.")
-    
-    try:
-        # DB_Top20 대신 DB_AI_Report 연결
-        ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
-        data = ai_report_sheet.get_all_records()
-        if data:
-            df = pd.DataFrame(data)
-            latest_time = df['Execution_Time'].max()
-            df_latest = df[df['Execution_Time'] == latest_time].reset_index(drop=True)
-            
-            with st.form("feedback_form"):
-                feedback_results = []
-                for idx, row in df_latest.iterrows():
-                    st.markdown(f"<div style='font-size: 16px; font-weight: bold; color: #1E3A8A; margin-top: 10px;'>[{idx+1}] {row['Title']}</div>", unsafe_allow_html=True)
-                    st.markdown(f"🔗 [기사 원문 열기]({row['Link']}) | 📡 매체: **{row['Media']}** | ⭐ 최종 총점: **{row['Total_Score']}점**")
-                    st.markdown(f"🏷️ 연관 추출 키워드: `{row['Matched_Keywords']}`")
-                    
-                    fb = st.radio(
-                        "이 기사에 대한 품질 평가를 선택하세요.",
-                        ["평가 보류", "👍 좋아요 (이런 기사 추천 가중치 상승)", "👎 싫어요 (이런 기사 필터링 감점 강화)"],
-                        key=f"fb_select_{idx}",
-                        horizontal=True
-                    )
-                    st.markdown("<hr style='margin: 12px 0; border: 0; border-top: 1px dashed #E5E7EB;'>", unsafe_allow_html=True)
-                    
-                    feedback_results.append({
-                        "Date": row['Date'],
-                        "Title": row['Title'],
-                        "Link": row['Link'],
-                        "Media": row['Media'],
-                        "Matched_Keywords": row['Matched_Keywords'],
-                        "Total_Score": row['Total_Score'],
-                        "Feedback": fb
-                    })
-                    
-                submit_btn = st.form_submit_button("💾 피드백 데이터 수집 저장소에 동기화", use_container_width=True)
-                
-                if submit_btn:
-                    try:
-                        try:
-                            fb_sheet = spreadsheet.worksheet("DB_Feedback")
-                        except Exception:
-                            fb_sheet = spreadsheet.add_worksheet(title="DB_Feedback", rows="5000", cols="8")
-                            fb_sheet.append_row(["Feedback_Time", "Article_Date", "Title", "Link", "Media", "Matched_Keywords", "Total_Score", "Feedback_Result"])
-                        
-                        now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-                        rows_to_append = []
-                        for f_item in feedback_results:
-                            if f_item["Feedback"] != "평가 보류":
-                                rows_to_append.append([
-                                    now_str,
-                                    f_item["Date"],
-                                    f_item["Title"],
-                                    f_item["Link"],
-                                    f_item["Media"],
-                                    f_item["Matched_Keywords"],
-                                    f_item["Total_Score"],
-                                    f_item["Feedback"]
-                                ])
-                                
-                        if rows_to_append:
-                            fb_sheet.append_rows(rows_to_append)
-                            st.success(f"✅ 총 {len(rows_to_append)}개의 고품질 취향 피드백이 DB_Feedback 시트에 안전하게 영구 저장되었습니다.")
-                        else:
-                            st.warning("⚠️ 좋아요 또는 싫어요 마킹을 한 기사가 한 개도 발견되지 않았습니다.")
-                    except Exception as e:
-                        st.error(f"데이터베이스 기록에 실패했습니다. 에러 내용은 {e} 입니다.")
-        else:
-            st.info("피드백을 진행할 AI 평가 기사 목록 정보가 존재하지 않습니다.")
-    except Exception as e:
-        st.warning(f"시트 로드 오류가 발생했습니다. 내용은 {e} 입니다.")
+            opts_persona = ["옵션 1 (기본 금융 전문가)", "옵션 2 (신규 커스텀)"]
+            selected_persona = st.selectbox("적용할 AI 페르소나를 선택하세요.", opts_persona, index=opts_persona.index(current_persona) if current_persona in

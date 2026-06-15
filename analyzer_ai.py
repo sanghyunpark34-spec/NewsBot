@@ -52,7 +52,6 @@ def process_ai_score():
     stage_sheet = spreadsheet.worksheet("DB_Stage")
     archive_sheet = spreadsheet.worksheet("DB_Archive")
     
-    # DB_AI_Report 시트 생성 및 사장님 지정 헤더 적용
     try:
         ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
     except:
@@ -64,12 +63,20 @@ def process_ai_score():
         print("⚠️ DB_Stage에 분석할 기사가 없습니다.")
         return
 
+    # 대시보드 시스템 설정값 로드 및 동적 가중치 비율 세팅
     try:
         sys_sheet = spreadsheet.worksheet("Config_System")
         config = {str(r.get("Key")): str(r.get("Value")) for r in sys_sheet.get_all_records()}
         engine_choice = config.get("AI_ENGINE", "전체")
-    except:
-        engine_choice = "전체"
+        
+        # 💡 대시보드 가중치 비율 파싱 (기본값은 AI 55% = 0.55)
+        ai_weight_pct = float(config.get("AI_WEIGHT_PERCENT", 55))
+        ai_weight = ai_weight_pct / 100.0
+        base_weight = 1.0 - ai_weight
+        print(f"⚖️ 가중치 밸런싱 세팅 적용 완료 (AI 반영 비율: {ai_weight_pct}%, 기초점수 반영 비율: {round(base_weight*100, 1)}%)")
+    except Exception as e:
+        print(f"⚠️ 시스템 설정 파싱 실패로 기본값(45:55) 가동: {e}")
+        ai_weight, base_weight = 0.55, 0.45
 
     system_persona, rubric_prompt = get_persona_and_rubric()
     
@@ -125,13 +132,12 @@ def process_ai_score():
         if details:
             avg = sum([d[1] for d in details]) / len(details)
             detail_str = f"{round(avg, 1)} ({', '.join([f'{d[0]} {d[1]}' for d in details])})"
-            total = round((base_score * 0.45) + (avg * 0.55), 2)
+            # 💡 [동적 연산 반영] 슬라이더 가중치 공식을 엄격히 준수하여 연산
+            total = round((base_score * base_weight) + (avg * ai_weight), 2)
         else:
             detail_str, total = "0", base_score
         
         archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
-        
-        # 💡 사장님 지정 10열 규격: Execution_Time(0), Date(1), Title(2), Link(3), Media(4), Matched_Keywords(5), Base_Score(6), AI_Score(7), Total_Score(8), Sent(9)
         ai_report_rows.append([now_str, row[0], row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
 
     for row in remaining_rows:
@@ -142,9 +148,9 @@ def process_ai_score():
         archive_sheet.append_rows(archive_rows)
         
     if ai_report_rows:
-        ai_report_rows.sort(key=lambda x: float(x[8]), reverse=True) # Total_Score 기준 정렬
+        ai_report_rows.sort(key=lambda x: float(x[8]), reverse=True) # 변동된 총점 기준 내림차순 정렬
         ai_report_sheet.append_rows(ai_report_rows)
-        print(f"🎯 AI 평가 완료된 {len(ai_report_rows)}개의 기사를 DB_AI_Report에 등록했습니다.")
+        print(f"🎯 AI 평가 및 맞춤형 가중치 연산이 반영된 기사 {len(ai_report_rows)}개를 DB_AI_Report에 이관했습니다.")
     
     stage_sheet.resize(rows=1)
 

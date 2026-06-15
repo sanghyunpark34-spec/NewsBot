@@ -2,7 +2,6 @@ name: News Automation Pipeline
 
 on:
   workflow_dispatch:
-    # cron-job.org에서 보내는 비밀 이름표를 받을 수 있도록 창구를 열어둡니다.
     inputs:
       is_scheduled:
         description: 'cron-job.org 스케줄 가동 여부'
@@ -24,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install gspread oauth2client requests google-genai pytz holidays groq pandas
+          pip install gspread oauth2client requests google-genai pytz holidays groq pandas anthropic
 
       - name: Run Orchestrator Pipeline
         env:
@@ -33,10 +32,10 @@ jobs:
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
           MY_CHAT_ID: ${{ secrets.MY_CHAT_ID }}
-        # 👇 외부 신호를 감지해서 파이썬 코드에게 진짜 스케줄러인지 수동인지 명확하게 구분해주는 로직입니다.
         run: |
           if [ "${{ github.event.inputs.is_scheduled }}" == "true" ]; then
             export GITHUB_EVENT_NAME="schedule"

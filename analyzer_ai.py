@@ -52,12 +52,12 @@ def process_ai_score():
     stage_sheet = spreadsheet.worksheet("DB_Stage")
     archive_sheet = spreadsheet.worksheet("DB_Archive")
     
-    # 💡 DB_AI_Report 시트 준비 (Top20을 대체하는 명확한 기준의 시트)
+    # DB_AI_Report 시트 생성 및 사장님 지정 헤더 적용
     try:
         ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
     except:
-        ai_report_sheet = spreadsheet.add_worksheet(title="DB_AI_Report", rows="1000", cols="8")
-        ai_report_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Matched_Keywords", "Total_Score", "Sent"])
+        ai_report_sheet = spreadsheet.add_worksheet(title="DB_AI_Report", rows="1000", cols="10")
+        ai_report_sheet.append_row(["Execution_Time", "Date", "Title", "Link", "Media", "Matched_Keywords", "Base_Score", "AI_Score", "Total_Score", "Sent"])
     
     rows = stage_sheet.get_all_values()
     if len(rows) <= 1:
@@ -73,12 +73,9 @@ def process_ai_score():
 
     system_persona, rubric_prompt = get_persona_and_rubric()
     
-    # 현재는 속도/비용 최적화를 위해 상위 20개만 AI에게 보냅니다. (이 숫자는 나중에 언제든 조절 가능)
     target_rows = rows[1:21]
     remaining_rows = rows[21:]
     
-    print(f"📊 총 {len(rows)-1}개의 통과 기사 중, 상위 {len(target_rows)}개 그룹만 AI에게 평가를 요청합니다.")
-
     batch_prompt = f"{system_persona}\n\n{rubric_prompt}\n\n다음 {len(target_rows)}개 기사 제목에 대해 각각 0~100점 사이로 채점해줘.\n형식은 반드시 JSON으로: {{'1': 점수, '2': 점수, ...}}\n\n기사 리스트:\n"
     for i, row in enumerate(target_rows):
         batch_prompt += f"{i+1}. {row[1]}\n"
@@ -94,7 +91,6 @@ def process_ai_score():
         print("⚠️ AI 엔진이 선택되지 않았습니다.")
     else:
         for model_name in engines_to_run:
-            print(f"🚀 {model_name} 엔진에 채점 요청 중...")
             try:
                 res_json = ""
                 if model_name == "Gemini" and genai:
@@ -115,15 +111,13 @@ def process_ai_score():
                         for k, v in data.items():
                             if k not in scores_map: scores_map[k] = []
                             scores_map[k].append((model_name, int(v)))
-                        print(f"✅ {model_name} 채점 완료!")
             except Exception as e:
                 print(f"❌ {model_name} 에러 (스킵): {e}")
 
     archive_rows = []
-    ai_report_rows = [] # 💡 AI 평가를 받은 기사들만 모이는 전용 리스트
+    ai_report_rows = []
     now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     
-    # 1. AI 평가를 받은 그룹 처리 (Archive + AI_Report 양쪽 모두 저장)
     for i, row in enumerate(target_rows):
         idx_str = str(i+1)
         base_score = float(row[5])
@@ -135,30 +129,24 @@ def process_ai_score():
         else:
             detail_str, total = "0", base_score
         
-        # Archive 보존용 (모든 상세 데이터)
         archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
         
-        # 💡 AI_Report 발송 대기용 (텔레그램이 요구하는 필수 규격)
-        ai_report_rows.append([now_str, row[0], row[1], row[2], row[3], row[4], total, 'N'])
+        # 💡 사장님 지정 10열 규격: Execution_Time(0), Date(1), Title(2), Link(3), Media(4), Matched_Keywords(5), Base_Score(6), AI_Score(7), Total_Score(8), Sent(9)
+        ai_report_rows.append([now_str, row[0], row[1], row[2], row[3], row[4], base_score, detail_str, total, 'N'])
 
-    # 2. AI 평가를 받지 못한 나머지 그룹 처리 (Archive에만 조용히 보존)
     for row in remaining_rows:
         base_score = float(row[5])
-        archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, "AI 미평가 (순위 밖)", base_score, 'N'])
+        archive_rows.append([now_str, row[1], row[2], row[3], row[4], base_score, "AI 미평가", base_score, 'N'])
 
-    # 시트 업데이트
     if archive_rows:
         archive_sheet.append_rows(archive_rows)
-        print(f"💾 총 {len(archive_rows)}개의 전체 기사를 DB_Archive에 영구 저장했습니다.")
         
     if ai_report_rows:
-        # AI 평가 총점을 기준으로 가장 높은 기사가 위로 오도록 정렬
-        ai_report_rows.sort(key=lambda x: float(x[6]), reverse=True)
+        ai_report_rows.sort(key=lambda x: float(x[8]), reverse=True) # Total_Score 기준 정렬
         ai_report_sheet.append_rows(ai_report_rows)
-        print(f"🎯 AI 평가가 완료된 {len(ai_report_rows)}개의 기사를 DB_AI_Report 발송 대기열에 등록했습니다.")
+        print(f"🎯 AI 평가 완료된 {len(ai_report_rows)}개의 기사를 DB_AI_Report에 등록했습니다.")
     
-    stage_sheet.resize(rows=1) # 작업이 끝난 Stage는 깨끗하게 초기화
-    print("🏁 AI 분석 및 이관 작업이 모두 완료되었습니다.")
+    stage_sheet.resize(rows=1)
 
 if __name__ == "__main__":
     process_ai_score()

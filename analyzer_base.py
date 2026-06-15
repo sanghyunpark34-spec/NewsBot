@@ -1,4 +1,4 @@
-import os, json, gspread
+import os, json, gspread, difflib
 from oauth2client.service_account import ServiceAccountCredentials
 
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
@@ -6,6 +6,11 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
     ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 )
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
+
+# 💡 [핵심 추가] 두 기사 제목의 유사도를 판별하는 함수 (65% 이상이면 중복으로 간주)
+def is_similar(title1, title2, threshold=0.65):
+    ratio = difflib.SequenceMatcher(None, title1.replace(" ", ""), title2.replace(" ", "")).ratio()
+    return ratio >= threshold
 
 def process_base_score():
     inbox_sheet = spreadsheet.worksheet("DB_Inbox")
@@ -91,7 +96,6 @@ def process_base_score():
         applied_penalties = found_penalties[:2]
         penalty_raw_sum = sum([item[1] for item in applied_penalties]) 
         
-        # 💡 [핵심 업데이트] 키워드가 1개라도 있어야만 매체 점수와 결합하여 생존할 수 있습니다.
         if sorted_coefs:
             final_raw_score = (positive_raw_sum + media_score) - penalty_raw_sum
             final_raw_score = max(0.0, final_raw_score) 
@@ -109,11 +113,33 @@ def process_base_score():
         stage_rows.append([date, title, url, matched_media, matched_keywords_str, base_score])
 
     if stage_rows:
+        # 💡 1. 기초 점수 기준으로 최상위 기사부터 정렬
         stage_rows.sort(key=lambda x: x[5], reverse=True)
-        stage_sheet.append_rows(stage_rows)
+        
+        # 💡 2. 중복 기사 필터링 (De-duplication)
+        final_survivors = []
+        accepted_titles = []
+        
+        for row in stage_rows:
+            current_title = row[1]
+            is_duplicate = False
+            
+            for accepted_title in accepted_titles:
+                if is_similar(current_title, accepted_title, threshold=0.65):
+                    is_duplicate = True
+                    break
+                    
+            if not is_duplicate:
+                final_survivors.append(row)
+                accepted_titles.append(current_title)
+            else:
+                print(f"🚫 중복 기사 탈락: {current_title[:20]}...")
+                
+        # 💡 3. 생존한 엑기스 기사들만 DB에 저장
+        stage_sheet.append_rows(final_survivors)
         
     inbox_sheet.resize(rows=1)
-    print("4+1 가중치 정규화 (핵심 단어 필수 포함) 연산 완료.")
+    print("4+1 가중치 정규화 및 중복 기사 제거 연산 완료.")
 
 if __name__ == "__main__":
     process_base_score()

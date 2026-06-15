@@ -8,7 +8,7 @@ on:
         required: false
         default: 'false'
       run_type:
-        description: '실행 모드 (full / report_only)'
+        description: '실행 모드 (full / score_only / report_only)'
         required: false
         default: 'full'
 
@@ -47,11 +47,15 @@ jobs:
             export GITHUB_EVENT_NAME="workflow_dispatch"
           fi
           
-          # 👇 런 타입이 report_only면 발송 파일만 단독으로 실행합니다.
           if [ "${{ github.event.inputs.run_type }}" == "report_only" ]; then
-            echo "🚀 메세지 즉시 발송 모드로 단독 실행합니다."
+            echo "🚀 뉴스 서치 없이 현재 저장된 탑 20 리포트만 텔레그램으로 즉시 발송합니다."
+            python telegram_reporter.py
+          elif [ "${{ github.event.inputs.run_type }}" == "score_only" ]; then
+            echo "🔄 신규 기사 서치를 건너뛰고, 보관된 기사들을 대상으로 재채점 및 발송을 시작합니다."
+            python analyzer_base.py
+            python analyzer_ai.py
             python telegram_reporter.py
           else
-            echo "🚀 전체 뉴스 수집 및 분석 파이프라인을 실행합니다."
+            echo "🚀 신규 뉴스 수집부터 AI 분석까지 전체 파이프라인을 실행합니다."
             python orchestrator.py
           fi

@@ -25,15 +25,12 @@ def send_telegram():
         print("⏰ [스케줄 가동] 공식 정기 리포트 발송을 시작합니다.")
     else:
         print("🚀 [수동 가동] 관리자 수동 발송 테스트를 시작합니다.")
-        
-    print(f"🧹 [대기열 청소] 기준 시간(Cut-off): {cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} 이전 기사는 만료(E) 처리됩니다.")
 
     BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     GROUP_CHAT_ID = os.environ.get("TELEGRAM_GROUP_CHAT_ID")
     MY_CHAT_ID = os.environ.get("MY_CHAT_ID")
 
     if not BOT_TOKEN:
-        print("⚠️ 텔레그램 봇 토큰이 없습니다.")
         return
 
     creds = ServiceAccountCredentials.from_json_keyfile_dict(
@@ -58,22 +55,21 @@ def send_telegram():
     target_chats = list(set(target_chats))
 
     if not target_chats:
-        print("⚠️ 발송 대상 채팅방이 없습니다.")
         return
 
     ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
     rows = ai_report_sheet.get_all_values()
     if len(rows) <= 1:
-        print("조건에 부합하는 발송 대상 기사가 없습니다.")
         return
 
     headers = rows[0]
     col_idx = {h: i for i, h in enumerate(headers)}
     date_idx = col_idx.get('Date', 1)
+    link_idx = col_idx.get('Link', 3)
     score_idx = col_idx.get('Total_Score', 8)
     sent_idx = col_idx.get('Sent', 9)
     
-    unsent_data = [] # 정렬 후에도 원래 시트 위치(행 번호)를 기억하기 위한 리스트
+    unsent_data = [] 
     expire_updates = []
     
     for i, row in enumerate(rows[1:]):
@@ -89,30 +85,36 @@ def send_telegram():
                 col_letter = gspread.utils.rowcol_to_a1(idx, sent_idx + 1)
                 expire_updates.append({'range': col_letter, 'values': [['E']]})
             else:
-                # 발송 대상 데이터와 시트 내 원래 행 번호(idx)를 함께 저장
                 unsent_data.append((row, idx))
 
     if expire_updates:
         ai_report_sheet.batch_update(expire_updates)
-        print(f"♻️ 총 {len(expire_updates)}개의 오래된 기사가 대기열에서 만료(E) 처리되어 자리를 양보했습니다.")
 
     if not unsent_data:
-        print("조건에 부합하는 신선한 발송 대상 기사가 없습니다.")
         return
 
-    # 💡 [핵심 보완] Total_Score를 기준으로 완벽하게 내림차순 정렬
     unsent_data.sort(
         key=lambda x: float(x[0][score_idx]) if x[0][score_idx].replace('.', '', 1).isdigit() else 0.0, 
         reverse=True
     )
 
-    # 상위 20개 추출
-    top_20_data = unsent_data[:20]
+    # 💡 [핵심 보완] URL 중복 검사를 통한 최후의 방어선 구축
+    final_top_data = []
+    seen_urls = set()
+    
+    for row_data in unsent_data:
+        row, original_idx = row_data
+        link = row[link_idx]
+        if link not in seen_urls:
+            seen_urls.add(link)
+            final_top_data.append(row_data)
+            if len(final_top_data) == 20: # 20개가 채워지면 중단
+                break
 
     msg = f"📊 뉴스 자동화 리포트\n\n"
-    for i, (row, original_idx) in enumerate(top_20_data):
+    for i, (row, original_idx) in enumerate(final_top_data):
         title = row[col_idx.get('Title', 2)]
-        link = row[col_idx.get('Link', 3)]
+        link = row[link_idx]
         msg += f"{i+1}. {title}\n🔗 {link}\n\n"
 
     for chat_id in target_chats:
@@ -123,17 +125,16 @@ def send_telegram():
         if res.status_code == 200:
             print(f"✅ {chat_id} 방 발송 완료!")
 
-    # 💡 발송된 상위 20개 기사의 원래 행 번호(original_idx)를 찾아가서 'Y'로 업데이트
     if is_scheduled:
         sent_updates = []
-        for row, original_idx in top_20_data:
+        for row, original_idx in final_top_data:
             col_letter = gspread.utils.rowcol_to_a1(original_idx, sent_idx + 1)
             sent_updates.append({'range': col_letter, 'values': [['Y']]})
         if sent_updates:
             ai_report_sheet.batch_update(sent_updates)
         print("🏁 공식 발송 완료: 발송된 상위 기사는 'Y'로 변경되었습니다.")
     else:
-        print("🏁 수동 발송 테스트 완료: 기사들의 Sent 상태는 'N'으로 유지되어 다음 스케줄에 정식 포함됩니다.")
+        print("🏁 수동 발송 테스트 완료")
 
 if __name__ == "__main__":
     send_telegram()

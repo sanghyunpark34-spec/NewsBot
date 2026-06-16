@@ -13,7 +13,6 @@ KST = pytz.timezone('Asia/Seoul')
 def clean_html(text):
     if not text:
         return ""
-    # 💡 네이버 API 결과물에 포함된 HTML 태그와 특수 엔티티 코드를 깨끗하게 정제합니다.
     text = re.sub(r'<[^>]+>', '', text)
     text = html.unescape(text)
     return text.strip()
@@ -38,8 +37,8 @@ def collect_news():
     try:
         archive_rows = archive_sheet.get_all_values()
         if len(archive_rows) > 1:
-            # 💡 사장님이 지정하신 10열 헤더 양식에서 정식 기사 발행일(Date)은 2번째 열에 위치합니다.
-            date_strings = [row[1] for row in archive_rows[1:] if row[1].strip()]
+            # 💡 [핵심 수정] row[1](제목)이 아니라 row[0](실행 시간)을 읽도록 수정 완료!
+            date_strings = [row[0] for row in archive_rows[1:] if row[0].strip()]
             if date_strings:
                 latest_str = max(date_strings)
                 cutoff_time = datetime.strptime(latest_str, "%Y-%m-%d %H:%M:%S")
@@ -58,7 +57,6 @@ def collect_news():
     seen_links = set()
     
     for kw in keywords:
-        print(f"[{kw}] 키워드로 실시간 뉴스 및 요약 텍스트 스캔 중...")
         url = f"https://openapi.naver.com/v1/search/news.json?query={requests.utils.quote(kw)}&display=50&sort=date"
         try:
             res = requests.get(url, headers=headers)
@@ -67,7 +65,7 @@ def collect_news():
                 for item in items:
                     title = clean_html(item.get("title"))
                     link = item.get("originallink") or item.get("link")
-                    description = clean_html(item.get("description")) # 💡 가벼운 본문 요약 데이터 추출
+                    description = clean_html(item.get("description"))
                     pub_date_str = item.get("pubDate")
                     
                     try:
@@ -80,7 +78,6 @@ def collect_news():
                         
                     if link not in seen_links:
                         seen_links.add(link)
-                        # 💡 기존 3개 데이터 구조에서 본문 요약(description)을 추가하여 총 4열 구조로 확장하여 빌드합니다.
                         rows_to_add.append([pub_date.strftime("%Y-%m-%d %H:%M:%S"), title, link, description])
         except Exception as e:
             print(f"❌ [{kw}] 검색 데이터 추출 중 오류가 발생했습니다: {e}")

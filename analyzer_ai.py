@@ -210,4 +210,7 @@ def process_ai_score():
         stage_sheet.resize(rows=1)
         
     except Exception as e:
-        print(f"❌ 프로세스 실행 중 치
+        print(f"❌ 프로세스 실행 중 치명적 에러 발생: {e}")
+
+if __name__ == "__main__":
+    process_ai_score()

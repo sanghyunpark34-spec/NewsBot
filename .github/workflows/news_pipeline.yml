@@ -8,9 +8,12 @@ on:
         required: false
         default: 'false'
       run_type:
-        description: '실행 모드 (full / score_only / report_only)'
+        description: '실행 모드 (full / score_only / report_only / clean_only)'
         required: false
         default: 'full'
+  schedule:
+    # 💡 [핵심 추가] 매주 일요일 18시(UTC) = 한국 시간(KST) 월요일 새벽 3시에 자동 가동
+    - cron: '0 18 * * 0'
 
 jobs:
   automation-orchestrator:
@@ -41,6 +44,14 @@ jobs:
           TELEGRAM_GROUP_CHAT_ID: ${{ secrets.GROUP_CHAT_ID }}
           MY_CHAT_ID: ${{ secrets.MY_CHAT_ID }}
         run: |
+          # 💡 1. 깃허브 자체 스케줄(월요일 새벽)로 가동된 경우 -> 청소부만 실행하고 종료
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            echo "🧹 [주말 자동 대청소] DB_Vault로의 백업 및 운영 시트 정리를 시작합니다."
+            python db_cleaner.py
+            exit 0
+          fi
+
+          # 💡 2. workflow_dispatch(수동 가동 또는 cron-job.org)로 가동된 경우
           if [ "${{ github.event.inputs.is_scheduled }}" == "true" ]; then
             export GITHUB_EVENT_NAME="schedule"
           else
@@ -55,6 +66,9 @@ jobs:
             python analyzer_base.py
             python analyzer_ai.py
             python telegram_reporter.py
+          elif [ "${{ github.event.inputs.run_type }}" == "clean_only" ]; then
+            echo "🧹 수동 호출에 의한 DB 대청소를 시작합니다."
+            python db_cleaner.py
           else
             echo "🚀 신규 뉴스 수집부터 AI 분석까지 전체 파이프라인을 실행합니다."
             python orchestrator.py

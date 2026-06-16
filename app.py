@@ -206,19 +206,36 @@ menu = st.sidebar.radio(
 if menu == "📊 종합 상황판":
     st.title("📊 기사 서치 종합 상황판")
     st.markdown("---")
-    st.markdown("#### 최근 AI 평가가 완료된 기사 목록")
+    st.markdown("#### 오늘의 딜 인텔리전스 Top 20 (만료 기사 제외)")
     try:
         ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
         data = ai_report_sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
+            
+            # 💡 [핵심 수정] 숫자 및 날짜 형변환 후 조건에 맞게 필터링 및 정렬
+            df['Total_Score'] = pd.to_numeric(df['Total_Score'], errors='coerce').fillna(0)
+            df['Execution_Time'] = pd.to_datetime(df['Execution_Time'], errors='coerce')
+            
             latest_time = df['Execution_Time'].max()
-            df_latest = df[df['Execution_Time'] == latest_time].drop(columns=['Execution_Time', 'Sent'], errors='ignore')
-            st.dataframe(df_latest, use_container_width=True, hide_index=True, height=750)
+            
+            # 필터: 최근 실행 시간 AND 만료(E)되지 않은 기사
+            df_latest = df[(df['Execution_Time'] == latest_time) & (df['Sent'] != 'E')]
+            
+            # 정렬 및 Top 20 자르기
+            top_20_df = df_latest.sort_values(by='Total_Score', ascending=False).head(20)
+            
+            # 화면 표시를 위해 불필요한 열 드롭
+            display_df = top_20_df.drop(columns=['Execution_Time', 'Sent'], errors='ignore')
+            
+            if not display_df.empty:
+                st.dataframe(display_df, use_container_width=True, hide_index=True, height=750)
+            else:
+                st.info("현재 대기 중인 유효한 기사가 없습니다.")
         else:
             st.info("아직 누적된 AI 평가 데이터가 없습니다.")
-    except Exception:
-        st.warning("DB_AI_Report 시트를 찾을 수 없습니다. 시트 이름이 올바른지 확인해주세요.")
+    except Exception as e:
+        st.warning(f"DB_AI_Report 시트를 찾을 수 없습니다. 내용: {e}")
 
 elif menu == "🔑 포함/제외 단어 제어":
     st.title("🔑 키워드 점수 조절 및 제외 설정")
@@ -372,13 +389,11 @@ elif menu == "🤖 AI 통합 설정":
             st.markdown("<div style='padding: 15px; border: 1px solid #E5E7EB; border-radius: 8px; background-color: #F9FAFB;'>", unsafe_allow_html=True)
             opts_engine = ["AI 사용 안 함", "무료 Gemini", "무료 Groq", "유료 Claude", "전체"]
             
-            # 긴 코드 잘림 방지를 위해 분리
             engine_idx = opts_engine.index(current_engine) if current_engine in opts_engine else 3
             selected_engine = st.selectbox("엔진 종류를 선택하세요.", opts_engine, index=engine_idx)
             
             opts_persona = ["옵션 1 (기본 금융 전문가)", "옵션 2 (신규 커스텀)"]
             
-            # 긴 코드 잘림 방지를 위해 분리
             persona_idx = opts_persona.index(current_persona) if current_persona in opts_persona else 0
             selected_persona = st.selectbox("적용할 AI 페르소나를 선택하세요.", opts_persona, index=persona_idx)
             
@@ -449,73 +464,82 @@ elif menu == "🤖 AI 통합 설정":
 elif menu == "🎯 Project B: 피드백 수집판":
     st.title("🎯 Project B: 뉴스 리포트 피드백 수집판")
     st.markdown("---")
-    st.markdown("##### 최근 선정된 AI 평가 기사 목록을 검토하고 취향 피드백을 남겨주세요. 이 데이터는 가중치 자동 강화학습 엔진의 핵심 학습 데이터셋으로 영구 누적됩니다.")
+    st.markdown("##### 오늘의 Top 20 기사를 검토하고 취향 피드백을 남겨주세요. 이 데이터는 자동 강화학습 엔진의 핵심 데이터셋으로 영구 누적됩니다.")
     
     try:
         ai_report_sheet = spreadsheet.worksheet("DB_AI_Report")
         data = ai_report_sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
-            latest_time = df['Execution_Time'].max()
-            df_latest = df[df['Execution_Time'] == latest_time].reset_index(drop=True)
             
-            with st.form("feedback_form"):
-                feedback_results = []
-                for idx, row in df_latest.iterrows():
-                    st.markdown(f"<div style='font-size: 16px; font-weight: bold; color: #1E3A8A; margin-top: 10px;'>[{idx+1}] {row['Title']}</div>", unsafe_allow_html=True)
-                    st.markdown(f"🔗 [기사 원문 열기]({row['Link']}) | 📡 매체: **{row['Media']}** | ⭐ 최종 총점: **{row['Total_Score']}점**")
-                    st.markdown(f"🏷️ 연관 추출 키워드: `{row['Matched_Keywords']}`")
-                    
-                    fb = st.radio(
-                        "이 기사에 대한 품질 평가를 선택하세요.",
-                        ["평가 보류", "👍 좋아요 (이런 기사 추천 가중치 상승)", "👎 싫어요 (이런 기사 필터링 감점 강화)"],
-                        key=f"fb_select_{idx}",
-                        horizontal=True
-                    )
-                    st.markdown("<hr style='margin: 12px 0; border: 0; border-top: 1px dashed #E5E7EB;'>", unsafe_allow_html=True)
-                    
-                    feedback_results.append({
-                        "Date": row['Date'],
-                        "Title": row['Title'],
-                        "Link": row['Link'],
-                        "Media": row['Media'],
-                        "Matched_Keywords": row['Matched_Keywords'],
-                        "Total_Score": row['Total_Score'],
-                        "Feedback": fb
-                    })
-                    
-                submit_btn = st.form_submit_button("💾 피드백 데이터 수집 저장소에 동기화", use_container_width=True)
-                
-                if submit_btn:
-                    try:
-                        try:
-                            fb_sheet = spreadsheet.worksheet("DB_Feedback")
-                        except Exception:
-                            fb_sheet = spreadsheet.add_worksheet(title="DB_Feedback", rows="5000", cols="8")
-                            fb_sheet.append_row(["Feedback_Time", "Article_Date", "Title", "Link", "Media", "Matched_Keywords", "Total_Score", "Feedback_Result"])
+            # 💡 [핵심 수정] 메인 상황판과 동일하게 만료(E) 제외 후 Top 20 렌더링
+            df['Total_Score'] = pd.to_numeric(df['Total_Score'], errors='coerce').fillna(0)
+            df['Execution_Time'] = pd.to_datetime(df['Execution_Time'], errors='coerce')
+            
+            latest_time = df['Execution_Time'].max()
+            df_latest = df[(df['Execution_Time'] == latest_time) & (df['Sent'] != 'E')]
+            df_latest = df_latest.sort_values(by='Total_Score', ascending=False).head(20).reset_index(drop=True)
+            
+            if not df_latest.empty:
+                with st.form("feedback_form"):
+                    feedback_results = []
+                    for idx, row in df_latest.iterrows():
+                        st.markdown(f"<div style='font-size: 16px; font-weight: bold; color: #1E3A8A; margin-top: 10px;'>[{idx+1}] {row['Title']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"🔗 [기사 원문 열기]({row['Link']}) | 📡 매체: **{row['Media']}** | ⭐ 최종 총점: **{row['Total_Score']}점**")
+                        st.markdown(f"🏷️ 연관 추출 키워드: `{row['Matched_Keywords']}`")
                         
-                        now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-                        rows_to_append = []
-                        for f_item in feedback_results:
-                            if f_item["Feedback"] != "평가 보류":
-                                rows_to_append.append([
-                                    now_str,
-                                    f_item["Date"],
-                                    f_item["Title"],
-                                    f_item["Link"],
-                                    f_item["Media"],
-                                    f_item["Matched_Keywords"],
-                                    f_item["Total_Score"],
-                                    f_item["Feedback"]
-                                ])
-                                
-                        if rows_to_append:
-                            fb_sheet.append_rows(rows_to_append)
-                            st.success(f"✅ 총 {len(rows_to_append)}개의 고품질 취향 피드백이 DB_Feedback 시트에 안전하게 영구 저장되었습니다.")
-                        else:
-                            st.warning("⚠️ 좋아요 또는 싫어요 마킹을 한 기사가 한 개도 발견되지 않았습니다.")
-                    except Exception as e:
-                        st.error(f"데이터베이스 기록에 실패했습니다. 에러 내용은 {e} 입니다.")
+                        fb = st.radio(
+                            "이 기사에 대한 품질 평가를 선택하세요.",
+                            ["평가 보류", "👍 좋아요 (이런 기사 추천 가중치 상승)", "👎 싫어요 (이런 기사 필터링 감점 강화)"],
+                            key=f"fb_select_{idx}",
+                            horizontal=True
+                        )
+                        st.markdown("<hr style='margin: 12px 0; border: 0; border-top: 1px dashed #E5E7EB;'>", unsafe_allow_html=True)
+                        
+                        feedback_results.append({
+                            "Date": row['Date'],
+                            "Title": row['Title'],
+                            "Link": row['Link'],
+                            "Media": row['Media'],
+                            "Matched_Keywords": row['Matched_Keywords'],
+                            "Total_Score": row['Total_Score'],
+                            "Feedback": fb
+                        })
+                        
+                    submit_btn = st.form_submit_button("💾 피드백 데이터 수집 저장소에 동기화", use_container_width=True)
+                    
+                    if submit_btn:
+                        try:
+                            try:
+                                fb_sheet = spreadsheet.worksheet("DB_Feedback")
+                            except Exception:
+                                fb_sheet = spreadsheet.add_worksheet(title="DB_Feedback", rows="5000", cols="8")
+                                fb_sheet.append_row(["Feedback_Time", "Article_Date", "Title", "Link", "Media", "Matched_Keywords", "Total_Score", "Feedback_Result"])
+                            
+                            now_str = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+                            rows_to_append = []
+                            for f_item in feedback_results:
+                                if f_item["Feedback"] != "평가 보류":
+                                    rows_to_append.append([
+                                        now_str,
+                                        f_item["Date"],
+                                        f_item["Title"],
+                                        f_item["Link"],
+                                        f_item["Media"],
+                                        f_item["Matched_Keywords"],
+                                        f_item["Total_Score"],
+                                        f_item["Feedback"]
+                                    ])
+                                    
+                            if rows_to_append:
+                                fb_sheet.append_rows(rows_to_append)
+                                st.success(f"✅ 총 {len(rows_to_append)}개의 고품질 취향 피드백이 DB_Feedback 시트에 안전하게 영구 저장되었습니다.")
+                            else:
+                                st.warning("⚠️ 좋아요 또는 싫어요 마킹을 한 기사가 한 개도 발견되지 않았습니다.")
+                        except Exception as e:
+                            st.error(f"데이터베이스 기록에 실패했습니다. 에러 내용은 {e} 입니다.")
+            else:
+                st.info("피드백을 남길 수 있는 유효한 기사(만료 제외)가 존재하지 않습니다.")
         else:
             st.info("피드백을 진행할 AI 평가 기사 목록 정보가 존재하지 않습니다.")
     except Exception as e:

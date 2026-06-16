@@ -18,8 +18,11 @@ def process_base_score():
     keyword_sheet = spreadsheet.worksheet("Config_Keywords")
     
     # 2. 매체, 키워드, 감점 데이터 로드
-    try: media_sheet = spreadsheet.worksheet("Config_Media")
-    except: media_sheet = spreadsheet.worksheet("Config_Media_Sites")
+    try: 
+        media_sheet = spreadsheet.worksheet("Config_Media")
+    except: 
+        media_sheet = spreadsheet.worksheet("Config_Media_Sites")
+        
     media_records = media_sheet.get_all_records()
     media_dict = {str(mr.get('Domain', '')).strip().lower(): float(mr.get('Weight', mr.get('Score', mr.get('Coefficient', 0)))) for mr in media_records if str(mr.get('Domain', '')).strip()}
 
@@ -31,19 +34,22 @@ def process_base_score():
             score_raw = r.get("Score")
             score = float(score_raw) if score_raw is not None and str(score_raw).strip() != "" else 0.0
             if kw: keywords[kw] = score
-    except Exception as e: keywords = {}
+    except Exception as e: 
+        keywords = {}
 
     try:
         neg_sheet = spreadsheet.worksheet("Config_Negative")
         neg_records = neg_sheet.get_all_records()
         penalty_dict = {str(r.get("Keyword", "")).strip(): float(r.get("Coefficient", r.get("Score", 20.0))) for r in neg_records if str(r.get("Keyword", "")).strip()}
-    except: penalty_dict = {}
+    except: 
+        penalty_dict = {}
 
+    # 💡 [핵심 보완 1] 100점 만점 정규화를 위한 기준점(분모)을 '상위 3개' 합산으로 하향 조정
     top_kw_scores = sorted(keywords.values(), reverse=True)
-    max_4_kw_sum = sum(top_kw_scores[:4]) if top_kw_scores else 40.0
+    max_3_kw_sum = sum(top_kw_scores[:3]) if top_kw_scores else 30.0
     max_media_score = max(media_dict.values()) if media_dict else 5.0
-    max_denominator = max_4_kw_sum + max_media_score
-    if max_denominator <= 0: max_denominator = 45.0
+    max_denominator = max_3_kw_sum + max_media_score
+    if max_denominator <= 0: max_denominator = 35.0
 
     rows = inbox_sheet.get_all_values()
     if len(rows) <= 1: return
@@ -53,6 +59,7 @@ def process_base_score():
     for row in rows[1:]:
         if len(row) < 3: continue
         date, title, url = row[0], row[1], row[2]
+        
         # 💡 수집기에서 넘어온 4번째 열(요약문) 데이터를 안전하게 받아옵니다.
         desc = row[3] if len(row) > 3 else ""
         
@@ -67,11 +74,14 @@ def process_base_score():
         matched_kws = []
         kw_score_sum = 0.0
         sorted_kw_items = sorted(keywords.items(), key=lambda item: item[1], reverse=True)
+        
         for kw, pt in sorted_kw_items:
-            # 💡 [핵심] 제목뿐만 아니라 요약문(desc)에서도 타깃 키워드를 검사합니다.
+            # 💡 [핵심 보완 2] 제목뿐만 아니라 요약문(desc)에서도 타깃 키워드를 검사합니다.
             if kw in title or kw in desc:
-                matched_kws.append(f"{kw}({int(pt)})")
-                kw_score_sum += pt
+                # 💡 [핵심 보완 3] 매칭된 키워드가 3개 미만일 때만 점수와 태그에 반영합니다.
+                if len(matched_kws) < 3:
+                    matched_kws.append(f"{kw}({int(pt)})")
+                    kw_score_sum += pt
                 
         if kw_score_sum == 0:
             continue
@@ -79,7 +89,7 @@ def process_base_score():
         applied_penalties = []
         penalty_sum = 0.0
         for pk, penalty_val in penalty_dict.items():
-            # 💡 [핵심] 제외 단어도 요약문까지 샅샅이 뒤져서 감점시킵니다.
+            # 💡 제외 단어도 요약문까지 샅샅이 뒤져서 감점시킵니다.
             if pk in title or pk in desc:
                 applied_penalties.append(f"{pk}({int(penalty_val)})")
                 penalty_sum += penalty_val
@@ -118,7 +128,7 @@ def process_base_score():
     stage_sheet.resize(rows=1)
     if final_survivors:
         stage_sheet.append_rows(final_survivors)
-        print(f"✅ 총 {len(final_survivors)}개의 기사가 요약문 검증을 거쳐 100점 만점으로 선별되었습니다.")
+        print(f"✅ 총 {len(final_survivors)}개의 기사가 요약문 검증(최대 3개 제한)을 거쳐 100점 만점으로 선별되었습니다.")
     else:
         print("⚠️ 발송 기준을 충족하는 기사가 없습니다.")
         

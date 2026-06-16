@@ -113,7 +113,7 @@ def process_ai_score():
         for r in data_rows:
             try:
                 # r[5]는 Base_Score
-                if float(r[5]) >= 50.0: 
+                if float(r[5]) > 50.0: 
                     count_over_50 += 1
             except: 
                 pass

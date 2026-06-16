@@ -91,7 +91,6 @@ def process_ai_score():
             print("⚠️ DB_Stage에 분석할 기사가 없습니다.")
             return
 
-        # 💡 [핵심 보완] 변수 누락 없이 안전하게 로드
         sys_sheet = spreadsheet.worksheet("Config_System")
         config = {str(r.get("Key")): str(r.get("Value")) for r in sys_sheet.get_all_records()}
         
@@ -107,12 +106,30 @@ def process_ai_score():
         base_persona, rubric_prompt = get_persona_and_rubric()
         combined_system_prompt = f"{base_persona}\n\n[핵심 스크리닝 명세]\n{EXECUTIVE_SCREENING_MANDATE}"
         
-        target_rows = rows[1:31]
-        remaining_rows = rows[31:]
+        # 💡 [핵심 보완] Base Score 50점 이상 개수에 따른 탄력적 범위(Dynamic Sizing) 설정
+        data_rows = rows[1:]
+        count_over_50 = 0
+        
+        for r in data_rows:
+            try:
+                # r[5]는 Base_Score
+                if float(r[5]) >= 50.0: 
+                    count_over_50 += 1
+            except: 
+                pass
+
+        # 최소 30개 보장, 50점 이상이 많으면 최대 50개까지 확장
+        limit = 30
+        if count_over_50 > 30:
+            limit = min(count_over_50, 50)
+            
+        print(f"📊 기초 점수 50점 이상 기사: {count_over_50}개 ➡️ 이번 회차 AI 심층 평가 대상: {limit}개로 자동 조정됨.")
+
+        target_rows = data_rows[:limit]
+        remaining_rows = data_rows[limit:]
         
         batch_prompt = f"{rubric_prompt}\n\n다음 {len(target_rows)}개 기사의 제목과 요약 내용을 분석하여 0~100점 사이로 채점해줘.\n형식은 JSON: {{'1': 점수, '2': 점수, ...}}\n\n기사 데이터:\n"
         for i, row in enumerate(target_rows):
-            # 요약문(Desc) 데이터가 빈 칸일 경우를 대비한 안전 장치
             desc = row[6] if len(row) > 6 else ""
             batch_prompt += f"{i+1}. 제목: {row[1]} | 요약: {desc}\n"
 
@@ -193,7 +210,4 @@ def process_ai_score():
         stage_sheet.resize(rows=1)
         
     except Exception as e:
-        print(f"❌ 프로세스 실행 중 치명적 에러 발생: {e}")
-
-if __name__ == "__main__":
-    process_ai_score()
+        print(f"❌ 프로세스 실행 중 치

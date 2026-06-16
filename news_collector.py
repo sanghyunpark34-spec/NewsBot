@@ -3,7 +3,7 @@ import json
 import re
 import html
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -33,18 +33,28 @@ def collect_news():
     
     keywords = [r.get("Keyword", "").strip() for r in keyword_sheet.get_all_records() if r.get("Keyword", "").strip()]
     
-    cutoff_time = datetime.min
+    # 💡 [핵심 방어 1] DB가 완전히 비어있더라도 최대 3일(72시간)치만 가져오도록 절대 방어선 구축
+    now_kst = datetime.now(KST).replace(tzinfo=None)
+    cutoff_time = now_kst - timedelta(days=3)
+    
     try:
         archive_rows = archive_sheet.get_all_values()
         if len(archive_rows) > 1:
-            # 💡 [핵심 수정] row[1](제목)이 아니라 row[0](실행 시간)을 읽도록 수정 완료!
-            date_strings = [row[0] for row in archive_rows[1:] if row[0].strip()]
+            # 헤더를 확인하여 Date 열의 정확한 위치를 파악합니다.
+            headers = archive_rows[0]
+            date_idx = headers.index("Date") if "Date" in headers else 1
+            
+            date_strings = [row[date_idx] for row in archive_rows[1:] if len(row) > date_idx and row[date_idx].strip()]
             if date_strings:
                 latest_str = max(date_strings)
-                cutoff_time = datetime.strptime(latest_str, "%Y-%m-%d %H:%M:%S")
-                print(f"⏱️ 영구 창고 기준 최후 수집 시점은 {latest_str} 입니다.")
+                parsed_latest = datetime.strptime(latest_str, "%Y-%m-%d %H:%M:%S")
+                
+                # DB 최신 기록이 3일 전보다 더 최근이라면 그 시간을 사용
+                if parsed_latest > cutoff_time:
+                    cutoff_time = parsed_latest
+                print(f"⏱️ 영구 창고 기준 최후 수집 시점은 {cutoff_time.strftime('%Y-%m-%d %H:%M:%S')} 입니다.")
     except Exception as e:
-        print(f"⚠️ 기준 시점 확인 실패로 처음부터 수집을 시도합니다: {e}")
+        print(f"⚠️ 기준 시점 확인 실패 (기본 3일 전 커트라인 적용): {e}")
 
     client_id = os.environ.get("NAVER_CLIENT_ID")
     client_secret = os.environ.get("NAVER_CLIENT_SECRET")
@@ -73,8 +83,9 @@ def collect_news():
                     except:
                         continue
                         
+                    # 💡 [핵심 방어 2] 날짜가 커트라인보다 과거라면 무조건 패스
                     if pub_date <= cutoff_time:
-                        break
+                        continue # 네이버 정렬이 꼬일 수 있으므로 break 대신 안전하게 continue 사용
                         
                     if link not in seen_links:
                         seen_links.add(link)

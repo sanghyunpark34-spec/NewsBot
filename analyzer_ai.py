@@ -10,8 +10,7 @@ GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
 CLAUDE_KEY = os.environ.get("CLAUDE_API_KEY", "")
 
 try:
-    import google.generativeai as genai
-    if GEMINI_KEY: genai.configure(api_key=GEMINI_KEY)
+    from google import genai
 except ImportError:
     genai = None
 
@@ -33,7 +32,6 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 )
 spreadsheet = gspread.authorize(creds).open("News_Management_DB")
 
-# 💡 800건의 누적 공유 사례를 역분석한 사내 암묵적 뉴스 스크리닝 최상위 지시문
 EXECUTIVE_SCREENING_MANDATE = """
 당신은 대한민국 최고 금융그룹의 경영전략실 수석 투자 분석가이자 M&A 총괄 책임자입니다.
 단순히 토픽 단어가 포함되었다고 점수를 주는 것이 아니라, "같은 토픽이라도 실무진 및 경영진의 의사결정에 직결되는 기사"인지를 철저히 역분석된 하단 기준에 따라 엄격하게 0~100점 사이로 채점해야 합니다.
@@ -106,24 +104,22 @@ def process_ai_score():
         base_persona, rubric_prompt = get_persona_and_rubric()
         combined_system_prompt = f"{base_persona}\n\n[핵심 스크리닝 명세]\n{EXECUTIVE_SCREENING_MANDATE}"
         
-        # 💡 [핵심 보완] Base Score 50점 이상 개수에 따른 탄력적 범위(Dynamic Sizing) 설정
         data_rows = rows[1:]
         count_over_50 = 0
         
         for r in data_rows:
             try:
-                # r[5]는 Base_Score
+                # 💡 50점 '초과'로 조건 변경 완료
                 if float(r[5]) > 50.0: 
                     count_over_50 += 1
             except: 
                 pass
 
-        # 최소 30개 보장, 50점 이상이 많으면 최대 50개까지 확장
         limit = 30
         if count_over_50 > 30:
             limit = min(count_over_50, 50)
             
-        print(f"📊 기초 점수 50점 이상 기사: {count_over_50}개 ➡️ 이번 회차 AI 심층 평가 대상: {limit}개로 자동 조정됨.")
+        print(f"📊 기초 점수 50점 초과 기사: {count_over_50}개 ➡️ 이번 회차 AI 심층 평가 대상: {limit}개로 자동 조정됨.")
 
         target_rows = data_rows[:limit]
         remaining_rows = data_rows[limit:]
@@ -147,10 +143,13 @@ def process_ai_score():
                 print(f"🚀 {model_name} 핵심 스크리닝 연산 요청 중...")
                 try:
                     res_json = ""
+                    # 💡 최신 google.genai 문법 적용 완료
                     if model_name == "Gemini" and genai:
-                        model = genai.GenerativeModel('gemini-1.5-flash')
-                        res = model.generate_content(f"{combined_system_prompt}\n\n{batch_prompt}")
-                        res_json = res.text
+                        client = genai.Client(api_key=GEMINI_KEY)
+                        res_json = client.models.generate_content(
+                            model='gemini-1.5-flash', 
+                            contents=f"{combined_system_prompt}\n\n{batch_prompt}"
+                        ).text
                     elif model_name == "Groq" and groq_client:
                         res = groq_client.chat.completions.create(
                             model="llama3-70b-8192", 

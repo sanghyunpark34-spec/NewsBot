@@ -13,8 +13,14 @@ st.set_page_config(page_title="뉴스 자동화 대시보드", page_icon="📰",
 
 KST = pytz.timezone('Asia/Seoul')
 
-# 💡 사장님의 실제 구글 스프레드시트 링크 적용 완료!
 GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1Q7Qc3HBnuSxUs5FOlS0uCnSqny5usLVbPig6Go8wIPo/edit?gid=2079355572#gid=2079355572"
+
+DEFAULT_QUOTAS = [
+    ["A. 한화 및 계열사", 5, "한화생명, 한화손보 등 금융 계열사 및 한화그룹 지배구조/승계/주요 딜"],
+    ["B. 보험/금융 본업 및 규제", 6, "타 보험사/금융지주 동향, K-ICS, 금감원/금융위 규제 및 인사"],
+    ["C. PEF 및 일반 M&A 딜", 6, "사모펀드(PEF) 동향, 비금융/일반 산업 주요 M&A 라이브 딜"],
+    ["D. 글로벌 및 신사업/기타", 5, "해외 크로스보더 딜, 디지털자산/STO, 기타 주요 경제/금융 이슈"]
+]
 
 # ==========================================
 # 🛠️ 1. 핵심 공통 시스템 함수 (리팩토링 구역)
@@ -110,7 +116,6 @@ def trigger_github_workflow(run_type, init_msg, running_msg, success_msg):
 # ==========================================
 st.sidebar.title("통합 제어판 ⚙️")
 
-# 💡 좌측 상단에 구글 시트 연결 버튼을 크게 추가했습니다.
 st.sidebar.link_button("📊 구글시트 직접 확인하기", GOOGLE_SHEET_URL, use_container_width=True)
 
 latest_article_str = "수집된 기사 없음"
@@ -165,7 +170,6 @@ if menu == "📊 종합 상황판":
     st.title("📊 기사 서치 종합 상황판")
     st.markdown("---")
     
-    # 💡 제목 문구를 변경하고 바로 옆에 구글 시트 연결 버튼을 배치했습니다.
     col_title, col_button = st.columns([4, 1])
     with col_title:
         st.markdown("#### 🔥 AI 선정 top 40 기사")
@@ -367,11 +371,31 @@ elif menu == "🤖 AI 통합 설정":
         st.markdown("<br><hr>", unsafe_allow_html=True)
         st.subheader("📊 2. AI 세부 채점 매커니즘 (Rubric) 고도화")
         rubric_sheet = spreadsheet.worksheet("Config_Rubric")
-        edited_df = st.data_editor(pd.DataFrame(rubric_sheet.get_all_records()), num_rows="dynamic", use_container_width=True, height=350)
+        edited_df = st.data_editor(pd.DataFrame(rubric_sheet.get_all_records()), num_rows="dynamic", use_container_width=True, height=350, key="rubric_editor")
         if st.button("💾 세부 채점 기준(Rubric) 영구 저장", use_container_width=True):
             rubric_sheet.clear()
-            rubric_sheet.update([edited_df.columns.values.tolist()] + edited_df.values.tolist())
+            rubric_sheet.update([edited_df.columns.values.tolist()] + edited_df.fillna("").values.tolist())
             st.success("인공지능 채점용 루브릭이 성공적으로 반영되었습니다.")
+
+        # 💡 3. 새롭게 추가된 최종 편집장 섹터 쿼터 설정 구역
+        st.markdown("<br><hr>", unsafe_allow_html=True)
+        st.subheader("⚖️ 3. 최종 편집장 섹터 쿼터(Quota) 배분 설정")
+        st.markdown("<span style='font-size:14px; color:#4B5563;'>* 텔레그램 최종 20개 기사 선발 시, 특정 분야에 편중되지 않도록 섹터별 최대 허용 개수(Max_Count)를 제어합니다.</span>", unsafe_allow_html=True)
+        try:
+            quota_sheet = spreadsheet.worksheet("Config_Quota")
+        except Exception:
+            quota_sheet = spreadsheet.add_worksheet(title="Config_Quota", rows="50", cols="3")
+            quota_sheet.append_row(["Sector", "Max_Count", "Description"])
+            quota_sheet.append_rows(DEFAULT_QUOTAS)
+            
+        quota_records = quota_sheet.get_all_records()
+        quota_df = pd.DataFrame(quota_records) if quota_records else pd.DataFrame(DEFAULT_QUOTAS, columns=["Sector", "Max_Count", "Description"])
+        edited_quota_df = st.data_editor(quota_df, num_rows="dynamic", use_container_width=True, height=250, key="quota_editor")
+        
+        if st.button("💾 섹터 쿼터 기준(Quota) 영구 저장", type="primary", use_container_width=True):
+            quota_sheet.clear()
+            quota_sheet.update([edited_quota_df.columns.values.tolist()] + edited_quota_df.fillna("").values.tolist())
+            st.success("최종 편집장용 섹터 쿼터 배분 기준이 성공적으로 반영되었습니다.")
             
     except Exception as e: 
         st.error(f"AI 설정 로드 중 오류가 발생했습니다. 발생한 오류는 {e} 입니다.")

@@ -27,7 +27,6 @@ def get_previous_working_day_cutoff(current_time):
         days_to_subtract += 1
 
 def get_sector_quota_prompt(spreadsheet):
-    """Config_Quota 시트에서 섹터별 쿼터 설정을 읽어와 프롬프트 텍스트로 변환합니다."""
     try:
         try:
             quota_sheet = spreadsheet.worksheet("Config_Quota")
@@ -37,8 +36,7 @@ def get_sector_quota_prompt(spreadsheet):
             quota_sheet.append_rows(DEFAULT_QUOTAS)
         
         records = quota_sheet.get_all_records()
-        if not records:
-            return ""
+        if not records: return ""
             
         quota_text = "\n[섹터별 최대 선발 쿼터(상한선) 기준]\n"
         for r in records:
@@ -117,14 +115,14 @@ def send_telegram():
     prompt_text += "1. 목록을 읽고, 다루는 핵심 이슈(기업, 딜, 사건)가 실질적으로 완전히 동일한 '중복 기사'들을 식별하세요.\n"
     prompt_text += "2. 중복된 기사 묶음이 있다면, 무조건 '가장 먼저 등장하는(ID가 빠른=점수가 높은) 기사' 딱 1개만 남기고 나머지는 제외하세요.\n"
     
-    # 💡 출력 형식을 JSON Array([])에서 JSON Object({})로 변경하여 카테고리명과 함께 받음
     if quota_guide:
-        prompt_text += "3. 특정 분야(예: 보험 등)에 기사가 편중되지 않도록, 아래 제시된 [섹터별 최대 선발 쿼터 기준]을 준수하여 다양한 분야에서 골고루 기사를 선발하세요. 특정 섹터가 최대 허용 개수를 채웠다면, 차순위 핵심 기사를 끌어올려 균형을 맞추세요.\n"
-        prompt_text += "4. 최종 선발된 최대 20개의 기사 ID를 '각 섹터 이름'을 Key로, '기사 ID 배열'을 Value로 하는 JSON 객체(Object) 형식으로 반환하세요. 다른 설명은 절대 넣지 마세요.\n"
-        prompt_text += "형식 예시: {\"A. 한화 및 계열사\": [1, 5], \"B. 보험/금융 본업 및 규제\": [2, 12, 15], \"C. PEF 및 일반 M&A 딜\": [8, 9], \"D. 글로벌 및 신사업/기타\": [20]}\n"
+        prompt_text += "3. 특정 분야에 기사가 편중되지 않도록, 아래 제시된 [섹터별 최대 선발 쿼터 기준]을 준수하여 다양한 분야에서 골고루 기사를 선발하세요.\n"
+        prompt_text += "4. 최종 선발된 최대 20개의 기사 ID를 '각 섹터 이름'을 Key로, '기사 ID 배열'을 Value로 하는 완전하고 올바른 JSON 객체(Object) 형식으로만 반환하세요.\n"
+        prompt_text += '주의사항: 반드시 큰따옴표(")를 사용한 유효한 JSON이어야 하며, 마크다운이나 부가 설명 없이 오직 JSON만 출력하세요.\n'
+        prompt_text += '형식 예시: {"A. 한화 및 계열사": [1, 5], "B. 보험/금융 본업 및 규제": [2, 12, 15], "C. PEF 및 일반 M&A 딜": [8, 9], "D. 글로벌 및 신사업/기타": [20]}\n'
         prompt_text += quota_guide
     else:
-        prompt_text += "3. 최종 선발된 최대 20개의 기사 ID를 {\"🔥 주요 뉴스\": [1, 2, 5, 8]}와 같은 JSON 객체 형식으로 반환하세요. 다른 설명은 절대 넣지 마세요.\n"
+        prompt_text += '3. 최종 선발된 최대 20개의 기사 ID를 {"🔥 주요 뉴스": [1, 2, 5, 8]}와 같은 JSON 객체 형식으로 반환하세요. 큰따옴표를 반드시 사용하세요.\n'
         
     prompt_text += "\n[기사 목록]\n"
     
@@ -138,8 +136,15 @@ def send_telegram():
         res_json = ""
         if ("Claude" in engine_choice or "전체" in engine_choice) and os.environ.get("CLAUDE_API_KEY"):
             client = anthropic.Anthropic(api_key=os.environ.get("CLAUDE_API_KEY"))
-            msg = client.messages.create(model="claude-4-5-20251001", max_tokens=600, messages=[{"role": "user", "content": prompt_text}])
-            res_json = msg.content[0].text
+            # 💡 수정 1: 정확한 Haiku 4.5 모델명으로 수정
+            msg = client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=600, messages=[{"role": "user", "content": prompt_text}])
+            
+            # 💡 수정 2: ThinkingBlock을 피해서 TextBlock만 추출하는 방어 코드 삽입
+            for block in msg.content:
+                if block.type == 'text':
+                    res_json = block.text
+                    break
+
         elif "Gemini" in engine_choice and os.environ.get("GEMINI_API_KEY"):
             client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
             res_json = client.models.generate_content(
@@ -151,12 +156,13 @@ def send_telegram():
             res = client.chat.completions.create(model="llama3-70b-8192", messages=[{"role": "user", "content": prompt_text}])
             res_json = res.choices[0].message.content
 
-        # 💡 객체({}) 형태의 JSON 파싱
         start, end = res_json.find('{'), res_json.rfind('}')
         if start != -1 and end != -1:
             ai_filtered_dict = json.loads(res_json[start:end+1])
             total_selected = sum([len(v) for v in ai_filtered_dict.values()])
             print(f"✨ AI 편집장 검수 완료! 섹터별로 분류된 고유 기사 {total_selected}개가 최종 선정되었습니다.")
+        else:
+            raise ValueError("JSON 형식을 찾을 수 없음")
     except Exception as e:
         print(f"⚠️ AI 큐레이션 지연으로 기본 정렬 기준 20개를 발송합니다. ({e})")
         ai_filtered_dict = {"🔥 통합 랭킹 Top 20": list(range(1, 21))}
@@ -166,7 +172,6 @@ def send_telegram():
     seen_urls = set()
     total_added = 0
     
-    # 💡 텔레그램 메시지를 카테고리별로 생성하는 로직
     for category_name, id_list in ai_filtered_dict.items():
         category_added = False
         category_msg = f"📌 【 {category_name} 】\n"
@@ -188,9 +193,9 @@ def send_telegram():
                     category_added = True
                     
                     title = row_data[0][col_idx.get('Title', 2)]
+                    # 💡 불릿 포인트(•)가 정상적으로 찍히는 부분
                     category_msg += f"• {title}\n🔗 {link}\n\n"
         
-        # 해당 카테고리에 기사가 하나라도 들어갔을 때만 메시지에 추가 (빈 카테고리 숨김)
         if category_added:
             msg += category_msg
 

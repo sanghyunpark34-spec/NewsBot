@@ -173,7 +173,7 @@ def process_ai_score():
                             res_json = res.choices[0].message.content
                         elif model_name == "Claude" and claude_client:
                             msg = claude_client.messages.create(
-                                model="claude-haiku-4-5-20251001", 
+                                model="claude-haiku-5-5", 
                                 max_tokens=2500, 
                                 system=combined_system_prompt, 
                                 messages=[{"role": "user", "content": batch_prompt}]

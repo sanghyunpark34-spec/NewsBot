@@ -27,7 +27,7 @@ def get_previous_working_day_cutoff(current_time):
         days_to_subtract += 1
 
 def get_sector_quota_prompt(spreadsheet):
-    """Config_Quota 시트에서 섹터별 쿼터 설정을 읽어와 프롬프트 텍스트로 변환합니다. 시트가 없으면 자동 생성합니다."""
+    """Config_Quota 시트에서 섹터별 쿼터 설정을 읽어와 프롬프트 텍스트로 변환합니다."""
     try:
         try:
             quota_sheet = spreadsheet.worksheet("Config_Quota")
@@ -49,7 +49,7 @@ def get_sector_quota_prompt(spreadsheet):
                 quota_text += f"- {sector} (최대 {max_cnt}개 이하): {desc}\n"
         return quota_text
     except Exception as e:
-        print(f"⚠️ 쿼터 시트 로드 중 예외 발생 (기본 중복 제거만 수행): {e}")
+        print(f"⚠️ 쿼터 시트 로드 중 예외 발생: {e}")
         return ""
 
 def send_telegram():
@@ -109,7 +109,6 @@ def send_telegram():
 
     print("🕵️‍♂️ 발송 직전 AI 편집장의 최종 중복 검수 및 섹터 쿼터 큐레이션을 시작합니다.")
     
-    # 💡 200개 채점 풀을 활용하기 위해 편집장 검토 후보군을 상위 80개로 확대
     curation_candidates = unsent_data[:80]
     quota_guide = get_sector_quota_prompt(spreadsheet)
 
@@ -117,12 +116,15 @@ def send_telegram():
     prompt_text += "[지시사항]\n"
     prompt_text += "1. 목록을 읽고, 다루는 핵심 이슈(기업, 딜, 사건)가 실질적으로 완전히 동일한 '중복 기사'들을 식별하세요.\n"
     prompt_text += "2. 중복된 기사 묶음이 있다면, 무조건 '가장 먼저 등장하는(ID가 빠른=점수가 높은) 기사' 딱 1개만 남기고 나머지는 제외하세요.\n"
+    
+    # 💡 출력 형식을 JSON Array([])에서 JSON Object({})로 변경하여 카테고리명과 함께 받음
     if quota_guide:
-        prompt_text += "3. 특정 분야(예: 보험 등)에 기사가 편중되지 않도록, 아래 제시된 [섹터별 최대 선발 쿼터 기준]을 준수하여 다양한 분야에서 골고루 기사를 선발하세요. 특정 섹터가 최대 허용 개수를 채웠다면, 점수가 조금 낮더라도 다른 섹터의 차순위 핵심 기사를 끌어올려 균형을 맞추세요.\n"
-        prompt_text += "4. 최종적으로 발송할 [고유하고 섹터 균형이 잡힌 기사 최대 20개의 ID]만을 중요도 순서대로 JSON 배열(예: [1, 2, 5, 8]) 형식으로 반환하세요. 다른 설명은 절대 넣지 마세요.\n"
+        prompt_text += "3. 특정 분야(예: 보험 등)에 기사가 편중되지 않도록, 아래 제시된 [섹터별 최대 선발 쿼터 기준]을 준수하여 다양한 분야에서 골고루 기사를 선발하세요. 특정 섹터가 최대 허용 개수를 채웠다면, 차순위 핵심 기사를 끌어올려 균형을 맞추세요.\n"
+        prompt_text += "4. 최종 선발된 최대 20개의 기사 ID를 '각 섹터 이름'을 Key로, '기사 ID 배열'을 Value로 하는 JSON 객체(Object) 형식으로 반환하세요. 다른 설명은 절대 넣지 마세요.\n"
+        prompt_text += "형식 예시: {\"A. 한화 및 계열사\": [1, 5], \"B. 보험/금융 본업 및 규제\": [2, 12, 15], \"C. PEF 및 일반 M&A 딜\": [8, 9], \"D. 글로벌 및 신사업/기타\": [20]}\n"
         prompt_text += quota_guide
     else:
-        prompt_text += "3. 최종적으로 발송할 [고유하고 핵심적인 기사 최대 20개의 ID]만을 순서대로 JSON 배열(예: [1, 2, 5, 8]) 형식으로 반환하세요. 다른 설명은 절대 넣지 마세요.\n"
+        prompt_text += "3. 최종 선발된 최대 20개의 기사 ID를 {\"🔥 주요 뉴스\": [1, 2, 5, 8]}와 같은 JSON 객체 형식으로 반환하세요. 다른 설명은 절대 넣지 마세요.\n"
         
     prompt_text += "\n[기사 목록]\n"
     
@@ -131,7 +133,7 @@ def send_telegram():
         kws = row[col_idx.get('Matched_Keywords', 5)] if len(row) > col_idx.get('Matched_Keywords', 5) else ""
         prompt_text += f"ID: {temp_id + 1} | 제목: {title} | 키워드: {kws}\n"
 
-    ai_filtered_ids = []
+    ai_filtered_dict = {}
     try:
         res_json = ""
         if ("Claude" in engine_choice or "전체" in engine_choice) and os.environ.get("CLAUDE_API_KEY"):
@@ -149,35 +151,48 @@ def send_telegram():
             res = client.chat.completions.create(model="llama3-70b-8192", messages=[{"role": "user", "content": prompt_text}])
             res_json = res.choices[0].message.content
 
-        start, end = res_json.find('['), res_json.rfind(']')
+        # 💡 객체({}) 형태의 JSON 파싱
+        start, end = res_json.find('{'), res_json.rfind('}')
         if start != -1 and end != -1:
-            ai_filtered_ids = json.loads(res_json[start:end+1])
-            print(f"✨ AI 편집장 검수 완료! 섹터 밸런싱이 적용된 고유 기사 {len(ai_filtered_ids)}개가 최종 선정되었습니다.")
+            ai_filtered_dict = json.loads(res_json[start:end+1])
+            total_selected = sum([len(v) for v in ai_filtered_dict.values()])
+            print(f"✨ AI 편집장 검수 완료! 섹터별로 분류된 고유 기사 {total_selected}개가 최종 선정되었습니다.")
     except Exception as e:
         print(f"⚠️ AI 큐레이션 지연으로 기본 정렬 기준 20개를 발송합니다. ({e})")
-        ai_filtered_ids = list(range(1, 21))
-
-    final_top_data = []
-    seen_urls = set()
-    
-    for temp_id in ai_filtered_ids:
-        try:
-            idx = int(temp_id) - 1
-        except:
-            continue
-        if 0 <= idx < len(curation_candidates):
-            row_data = curation_candidates[idx]
-            link = row_data[0][col_idx.get('Link', 3)]
-            if link not in seen_urls:
-                seen_urls.add(link)
-                final_top_data.append(row_data)
-                if len(final_top_data) == 20: break
+        ai_filtered_dict = {"🔥 통합 랭킹 Top 20": list(range(1, 21))}
 
     msg = f"📊 뉴스 자동화 큐레이션 리포트\n\n"
-    for i, (row, original_idx) in enumerate(final_top_data):
-        title = row[col_idx.get('Title', 2)]
-        link = row[col_idx.get('Link', 3)]
-        msg += f"{i+1}. {title}\n🔗 {link}\n\n"
+    final_top_data = []
+    seen_urls = set()
+    total_added = 0
+    
+    # 💡 텔레그램 메시지를 카테고리별로 생성하는 로직
+    for category_name, id_list in ai_filtered_dict.items():
+        category_added = False
+        category_msg = f"📌 【 {category_name} 】\n"
+        
+        for temp_id in id_list:
+            if total_added >= 20: break
+            try:
+                idx = int(temp_id) - 1
+            except: continue
+            
+            if 0 <= idx < len(curation_candidates):
+                row_data = curation_candidates[idx]
+                link = row_data[0][col_idx.get('Link', 3)]
+                
+                if link not in seen_urls:
+                    seen_urls.add(link)
+                    final_top_data.append(row_data)
+                    total_added += 1
+                    category_added = True
+                    
+                    title = row_data[0][col_idx.get('Title', 2)]
+                    category_msg += f"• {title}\n🔗 {link}\n\n"
+        
+        # 해당 카테고리에 기사가 하나라도 들어갔을 때만 메시지에 추가 (빈 카테고리 숨김)
+        if category_added:
+            msg += category_msg
 
     for chat_id in target_chats:
         requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": chat_id, "text": msg, "disable_web_page_preview": True})

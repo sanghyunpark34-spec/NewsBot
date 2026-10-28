@@ -1,4 +1,4 @@
-import os, json, gspread
+import os, json, time, gspread
 from datetime import datetime
 import pytz
 from oauth2client.service_account import ServiceAccountCredentials
@@ -73,7 +73,7 @@ def get_persona_and_rubric():
     return default_persona, rubric_text
 
 def process_ai_score():
-    print("🤖 프롬프트 고도화 및 본문 요약문 분석 가동...")
+    print("🤖 프롬프트 고도화 및 본문 요약문 분석 가동 (최대 200개 청크 분할 모드)...")
     try:
         stage_sheet = spreadsheet.worksheet("DB_Stage")
         archive_sheet = spreadsheet.worksheet("DB_Archive")
@@ -105,30 +105,26 @@ def process_ai_score():
         combined_system_prompt = f"{base_persona}\n\n[핵심 스크리닝 명세]\n{EXECUTIVE_SCREENING_MANDATE}"
         
         data_rows = rows[1:]
-        count_over_50 = 0
         
+        # 💡 200개 확장을 위한 동적 할당 로직 (기초 점수 30점 초과 기사를 최대 200개까지 수용, 최소 50개 보장)
+        count_qualified = 0
         for r in data_rows:
             try:
-                # 💡 50점 '초과'로 조건 변경 완료
-                if float(r[5]) > 50.0: 
-                    count_over_50 += 1
+                if float(r[5]) > 30.0: 
+                    count_qualified += 1
             except: 
                 pass
 
-        limit = 30
-        if count_over_50 > 30:
-            limit = min(count_over_50, 50)
+        limit = max(50, min(count_qualified, 200))
+        limit = min(limit, len(data_rows))
+        # (만약 기초 점수와 무관하게 무조건 상위 200개를 다 보시려면 위 두 줄 대신 아래 주석을 해제하세요)
+        # limit = min(len(data_rows), 200)
             
-        print(f"📊 기초 점수 50점 초과 기사: {count_over_50}개 ➡️ 이번 회차 AI 심층 평가 대상: {limit}개로 자동 조정됨.")
+        print(f"📊 기초 점수 30점 초과 기사: {count_qualified}개 ➡️ 이번 회차 AI 심층 평가 대상: {limit}개로 자동 조정됨.")
 
         target_rows = data_rows[:limit]
         remaining_rows = data_rows[limit:]
         
-        batch_prompt = f"{rubric_prompt}\n\n다음 {len(target_rows)}개 기사의 제목과 요약 내용을 분석하여 0~100점 사이로 채점해줘.\n형식은 JSON: {{'1': 점수, '2': 점수, ...}}\n\n기사 데이터:\n"
-        for i, row in enumerate(target_rows):
-            desc = row[6] if len(row) > 6 else ""
-            batch_prompt += f"{i+1}. 제목: {row[1]} | 요약: {desc}\n"
-
         scores_map = {}
         engines_to_run = []
         
@@ -139,42 +135,65 @@ def process_ai_score():
         if not engines_to_run or engine_choice == "AI 사용 안 함":
             print("⚠️ AI 엔진이 선택되지 않았습니다.")
         else:
-            for model_name in engines_to_run:
-                print(f"🚀 {model_name} 핵심 스크리닝 연산 요청 중...")
-                try:
-                    res_json = ""
-                    # 💡 최신 google.genai 문법 적용 완료
-                    if model_name == "Gemini" and genai:
-                        client = genai.Client(api_key=GEMINI_KEY)
-                        res_json = client.models.generate_content(
-                            model='gemini-1.5-flash', 
-                            contents=f"{combined_system_prompt}\n\n{batch_prompt}"
-                        ).text
-                    elif model_name == "Groq" and groq_client:
-                        res = groq_client.chat.completions.create(
-                            model="llama3-70b-8192", 
-                            messages=[{"role": "system", "content": combined_system_prompt}, {"role": "user", "content": batch_prompt}]
-                        )
-                        res_json = res.choices[0].message.content
-                    elif model_name == "Claude" and claude_client:
-                        msg = claude_client.messages.create(
-                            model="claude-haiku-4-5-20251001", 
-                            max_tokens=2500, 
-                            system=combined_system_prompt, 
-                            messages=[{"role": "user", "content": batch_prompt}]
-                        )
-                        res_json = msg.content[0].text
+            # 💡 50개씩 나누어 처리하는 청크 분할(Chunking) 로직
+            CHUNK_SIZE = 50
+            total_chunks = (len(target_rows) + CHUNK_SIZE - 1) // CHUNK_SIZE
+
+            for chunk_idx in range(total_chunks):
+                start_i = chunk_idx * CHUNK_SIZE
+                end_i = min(start_i + CHUNK_SIZE, len(target_rows))
+                chunk_rows = target_rows[start_i:end_i]
+
+                batch_prompt = (
+                    f"{rubric_prompt}\n\n"
+                    f"다음 {len(chunk_rows)}개 기사의 제목과 요약 내용을 분석하여 0~100점 사이로 채점해줘.\n"
+                    f"반드시 아래 제시된 기사 번호({start_i + 1} ~ {end_i})를 그대로 Key로 사용하여 JSON 형식으로만 응답해.\n"
+                    f"형식 예시: {{\"{start_i + 1}\": 85, \"{start_i + 2}\": 40, ...}}\n\n기사 데이터:\n"
+                )
+                for offset, row in enumerate(chunk_rows):
+                    global_idx = start_i + offset + 1
+                    desc = row[6] if len(row) > 6 else ""
+                    batch_prompt += f"{global_idx}. 제목: {row[1]} | 요약: {desc}\n"
+
+                for model_name in engines_to_run:
+                    print(f"🚀 [{chunk_idx + 1}/{total_chunks} 구간 ({start_i + 1}~{end_i}번)] {model_name} 핵심 스크리닝 연산 요청 중...")
+                    try:
+                        res_json = ""
+                        if model_name == "Gemini" and genai:
+                            client = genai.Client(api_key=GEMINI_KEY)
+                            res_json = client.models.generate_content(
+                                model='gemini-1.5-flash', 
+                                contents=f"{combined_system_prompt}\n\n{batch_prompt}"
+                            ).text
+                        elif model_name == "Groq" and groq_client:
+                            res = groq_client.chat.completions.create(
+                                model="llama3-70b-8192", 
+                                messages=[{"role": "system", "content": combined_system_prompt}, {"role": "user", "content": batch_prompt}]
+                            )
+                            res_json = res.choices[0].message.content
+                        elif model_name == "Claude" and claude_client:
+                            msg = claude_client.messages.create(
+                                model="claude-haiku-4-5-20251001", 
+                                max_tokens=2500, 
+                                system=combined_system_prompt, 
+                                messages=[{"role": "user", "content": batch_prompt}]
+                            )
+                            res_json = msg.content[0].text
+                        
+                        if res_json:
+                            start, end = res_json.find('{'), res_json.rfind('}')
+                            if start != -1 and end != -1:
+                                data = json.loads(res_json[start:end+1])
+                                for k, v in data.items():
+                                    k_str = str(k).strip()
+                                    if k_str not in scores_map: scores_map[k_str] = []
+                                    scores_map[k_str].append((model_name, int(v)))
+                                print(f"✅ [{chunk_idx + 1}/{total_chunks} 구간] {model_name} 연산 성공! ({len(data)}개 채점 완료)")
+                    except Exception as e:
+                        print(f"❌ [{chunk_idx + 1}/{total_chunks} 구간] {model_name} 엔진 분석 지연 스킵: {e}")
                     
-                    if res_json:
-                        start, end = res_json.find('{'), res_json.rfind('}')
-                        if start != -1 and end != -1:
-                            data = json.loads(res_json[start:end+1])
-                            for k, v in data.items():
-                                if k not in scores_map: scores_map[k] = []
-                                scores_map[k].append((model_name, int(v)))
-                            print(f"✅ {model_name} 핵심 스크리닝 연산 성공!")
-                except Exception as e:
-                    print(f"❌ {model_name} 엔진 분석 지연 스킵: {e}")
+                    # 연속 호출 시 API Rate Limit 방지를 위한 짧은 대기
+                    time.sleep(2)
 
         archive_rows = []
         ai_report_rows = []

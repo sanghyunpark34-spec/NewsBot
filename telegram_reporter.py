@@ -138,7 +138,7 @@ def send_telegram():
         res_json = ""
         if ("Claude" in engine_choice or "전체" in engine_choice) and os.environ.get("CLAUDE_API_KEY"):
             client = anthropic.Anthropic(api_key=os.environ.get("CLAUDE_API_KEY"))
-            msg = client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=600, messages=[{"role": "user", "content": prompt_text}])
+            msg = client.messages.create(model="claude-haiku-5-5", max_tokens=600, messages=[{"role": "user", "content": prompt_text}])
             res_json = msg.content[0].text
         elif "Gemini" in engine_choice and os.environ.get("GEMINI_API_KEY"):
             client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
